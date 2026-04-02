@@ -1,0 +1,193 @@
+// This is your Prisma schema file
+// Learn more: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+
+// ─────────────────────────────────────────────────
+// User & Auth
+// ─────────────────────────────────────────────────
+
+model User {
+  id          String   @id @default(cuid())
+  email       String   @unique
+  password    String
+  name        String?
+  plan        Plan     @default(FREE)
+  logoUrl     String?
+  // Business details (for invoices)
+  bizName     String?
+  bizAddress  String?
+  bizPhone    String?
+  bizWebsite  String?
+  currency    String   @default("USD")
+  // AI preferences
+  aiTone      AiTone   @default(PROFESSIONAL)
+  readReceipts Boolean @default(true)
+  // Stripe
+  stripeCustomerId      String?
+  stripeSubscriptionId  String?
+  stripePriceId         String?
+  subscriptionStatus    String?
+  // Usage limits
+  invoicesThisMonth     Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  clients       Client[]
+  invoices      Invoice[]
+  refreshTokens RefreshToken[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  email     String
+  token     String   @unique
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@map("password_reset_tokens")
+}
+
+// ─────────────────────────────────────────────────
+// Clients
+// ─────────────────────────────────────────────────
+
+model Client {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name       String
+  email      String
+  phone      String?
+  address    String?
+  company    String?
+  notes      String?
+  isArchived Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  invoices Invoice[]
+
+  @@index([userId])
+  @@map("clients")
+}
+
+// ─────────────────────────────────────────────────
+// Invoices
+// ─────────────────────────────────────────────────
+
+model Invoice {
+  id           String        @id @default(cuid())
+  userId       String
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clientId     String
+  client       Client        @relation(fields: [clientId], references: [id])
+  number       String
+  status       InvoiceStatus @default(DRAFT)
+  issueDate    DateTime      @default(now())
+  dueDate      DateTime
+  currency     String        @default("USD")
+  // Totals (stored for quick reads)
+  subtotal     Float         @default(0)
+  taxRate      Float         @default(0)
+  taxAmount    Float         @default(0)
+  total        Float         @default(0)
+  // Notes & terms
+  notes        String?
+  terms        String?
+  // Snapshot of client + business info at send time (JSON)
+  snapshotData Json?
+  // Public token for client-facing view
+  viewToken    String        @unique @default(cuid())
+  // Timestamps
+  readAt       DateTime?
+  sentAt       DateTime?
+  viewedAt     DateTime?
+  paidAt       DateTime?
+  voidedAt     DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  items     InvoiceItem[]
+  followUps FollowUp[]
+
+  @@unique([userId, number])
+  @@index([userId])
+  @@index([clientId])
+  @@map("invoices")
+}
+
+model InvoiceItem {
+  id          String   @id @default(cuid())
+  invoiceId   String
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  description String
+  quantity    Float    @default(1)
+  unitPrice   Float
+  taxPct      Float    @default(0)   // tax percentage for this line, e.g. 20 = 20%
+  lineTotal   Float                  // quantity * unitPrice
+  taxAmount   Float    @default(0)   // lineTotal * taxPct / 100
+  amount      Float                  // lineTotal + taxAmount (line grand total)
+  createdAt   DateTime @default(now())
+
+  @@index([invoiceId])
+  @@map("invoice_items")
+}
+
+model FollowUp {
+  id         String   @id @default(cuid())
+  invoiceId  String
+  invoice    Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  sentAt     DateTime @default(now())
+  method     String   @default("EMAIL") // EMAIL | MANUAL
+  notes      String?
+
+  @@index([invoiceId])
+  @@map("follow_ups")
+}
+
+// ─────────────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────────────
+
+enum Plan {
+  FREE
+  PRO
+}
+
+enum AiTone {
+  PROFESSIONAL
+  FRIENDLY
+  FORMAL
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  VIEWED
+  OVERDUE
+  PAID
+  VOID
+}
