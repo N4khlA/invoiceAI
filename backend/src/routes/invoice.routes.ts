@@ -9,15 +9,13 @@ import {
   sendInvoice,
   downloadPdf,
   markPaid,
-  getPublicInvoice,
 } from "../controllers/invoice.controller";
 
 const router = Router();
 
-// ─── Public (no auth) — mounted before authenticate in app.ts ───
-router.get("/view/:token", getPublicInvoice);
-
 // ─── Authenticated ───────────────────────────────────────────────
+// (The public /:token view lives in publicView.routes.ts — mounting
+// this whole router at /v1/invoices/view used to shadow /:id over it.)
 router.get("/",              listInvoices);
 router.post("/",             createInvoice);
 router.get("/:id",           getInvoice);
