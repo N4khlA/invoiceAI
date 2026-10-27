@@ -36,7 +36,7 @@ export async function listClients({ userId, page = 1, limit = 20, archived = fal
     }),
     prisma.client.count({ where: { userId, isArchived: archived } }),
   ]);
-  return { data, total, page, limit };
+  return { data, total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)) };
 }
 
 export interface CreateClientInput {
@@ -140,11 +140,14 @@ export async function listInvoices({ userId, page = 1, limit = 20, status, clien
       skip,
       take: limit,
       orderBy: { createdAt: "desc" },
-      include: { items: true },
+      include: {
+        items: true,
+        client: { select: { id: true, name: true, email: true } },
+      },
     }),
     prisma.invoice.count({ where }),
   ]);
-  return { data, total, page, limit };
+  return { data, total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)) };
 }
 
 export interface LineItemInput {
@@ -158,13 +161,15 @@ export interface CreateInvoiceInput {
   userId: string;
   clientId: string;
   dueDate: Date;
+  issueDate?: Date;
+  currency?: string;
   lineItems: LineItemInput[];
   notes?: string;
   terms?: string;
 }
 
 export async function createInvoice(input: CreateInvoiceInput) {
-  const { userId, clientId, dueDate, lineItems, notes, terms } = input;
+  const { userId, clientId, dueDate, issueDate, currency, lineItems, notes, terms } = input;
 
   // ── Plan limit enforcement ───────────────────────────────────────────────
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
@@ -230,6 +235,8 @@ export async function createInvoice(input: CreateInvoiceInput) {
         userId,
         clientId,
         number: invoiceNumber,
+        issueDate, // undefined → Prisma default (now())
+        currency: currency ?? user.currency, // default to the user's business currency
         dueDate,
         subtotal,
         taxAmount: totalTaxAmount,
@@ -258,7 +265,11 @@ export async function createInvoice(input: CreateInvoiceInput) {
 export async function getInvoice(id: string, userId: string) {
   const invoice = await prisma.invoice.findFirst({
     where: { id, userId },
-    include: { items: true, followUps: true },
+    include: {
+      items: true,
+      followUps: true,
+      client: { select: { id: true, name: true, email: true, address: true, phone: true, company: true } },
+    },
   });
   if (!invoice) throw AppError.notFound("Invoice");
   return invoice;
