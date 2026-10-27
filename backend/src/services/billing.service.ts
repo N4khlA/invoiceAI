@@ -191,6 +191,7 @@ export async function getBillingStatus(userId: string) {
       subscriptionStatus:   true,
       stripeSubscriptionId: true,
       stripePriceId:        true,
+      invoicesThisMonth:    true,
     },
   });
   if (!user) throw AppError.notFound("User");

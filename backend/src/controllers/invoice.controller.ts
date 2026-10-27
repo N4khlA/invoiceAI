@@ -30,6 +30,8 @@ const lineItemSchema = z.object({
 const createSchema = z.object({
   clientId: z.string().cuid("Invalid clientId"),
   dueDate: z.coerce.date(),
+  issueDate: z.coerce.date().optional(),
+  currency: z.string().length(3, "Currency must be a 3-letter ISO code").optional(),
   lineItems: z.array(lineItemSchema).min(1, "At least one line item is required"),
   notes: z.string().optional(),
   terms: z.string().optional(),
