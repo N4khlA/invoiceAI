@@ -11,6 +11,7 @@ import { env } from "./config/env";
 import authRoutes     from "./routes/auth.routes";
 import clientRoutes   from "./routes/client.routes";
 import invoiceRoutes  from "./routes/invoice.routes";
+import publicViewRoutes from "./routes/publicView.routes";
 import aiRoutes       from "./routes/ai.routes";
 import dashRoutes     from "./routes/dashboard.routes";
 import accountRoutes  from "./routes/account.routes";
@@ -23,6 +24,10 @@ import { apiLimiter }    from "./middleware/rateLimiter";
 
 export function createApp(): Application {
   const app = express();
+
+  // ── Behind a reverse proxy (nginx/ingress) rate limits must key on
+  //    X-Forwarded-For, otherwise every client shares one bucket ───
+  app.set("trust proxy", 1);
 
   // ── Security headers ──────────────────────────────────────────
   app.use(helmet());
@@ -53,11 +58,18 @@ export function createApp(): Application {
 
   // ── Public routes (no auth) ───────────────────────────────────
   app.use("/v1/auth",          authRoutes);
-  app.use("/v1/billing",       billingRoutes);          // /webhook is public; other paths are auth'd below
-  app.use("/v1/invoices/view", invoiceRoutes);          // /view/:token is public
+  // Public client-facing invoice view: dedicated router with a single
+  // "/:token" route so it can never be shadowed by the authenticated
+  // "/:id" route (Express strips mount prefixes — the original bug),
+  // rate-limited here because it sits before the /v1 apiLimiter.
+  app.use("/v1/invoices/view", apiLimiter, publicViewRoutes);
 
   // ── Global rate limiter for authenticated routes ──────────────
   app.use("/v1", apiLimiter);
+
+  // ── Billing: rate-limited by the line above, authenticated at
+  //    router level so Stripe /webhook stays public (raw body above) ─
+  app.use("/v1/billing",       billingRoutes);
 
   // ── Global auth guard for all remaining /v1/* ─────────────────
   app.use("/v1", authenticate);
@@ -68,6 +80,14 @@ export function createApp(): Application {
   app.use("/v1/ai",         aiRoutes);
   app.use("/v1/dashboard",  dashRoutes);
   app.use("/v1/account",    accountRoutes);
+
+  // ── JSON 404 for unmatched routes (never HTML) ────────────────
+  app.use((req, res) => {
+    res.status(404).json({
+      success: false,
+      error: { code: "NOT_FOUND", message: `Route ${req.method} ${req.originalUrl} not found` },
+    });
+  });
 
   // ── Global error handler (MUST be last) ──────────────────────
   app.use(errorHandler);
