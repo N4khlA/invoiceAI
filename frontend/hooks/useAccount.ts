@@ -3,12 +3,14 @@ import { api, extractError } from "@/lib/api";
 import { AuthUser, AiTone, Currency } from "@/types";
 import { useAuthStore } from "@/store/authStore";
 
-// ─── Payload types ─────────────────────────────────────────────────────────────
+// ─── Payload types (mirror backend PATCH /account schema) ─────────────────────
 
 export interface UpdateBusinessDetailsPayload {
-  businessName: string;
-  businessAddress: string;
+  bizName: string;
+  bizAddress: string;
   currency: Currency;
+  /** Optional public URL of the business logo */
+  logoUrl?: string;
 }
 
 export interface UpdatePreferencesPayload {
@@ -40,10 +42,11 @@ export function useAccount(): UseAccountReturn {
     setIsLoading(true);
     setError(null);
     try {
-      const { data } = await api.get<{ data: AuthUser }>("/account");
-      setAccount(data.data);
+      // Backend returns the user object directly (no data wrapper)
+      const { data } = await api.get<AuthUser>("/account");
+      setAccount(data);
       // Keep store in sync
-      updateUser(data.data);
+      updateUser(data);
     } catch (err) {
       setError(extractError(err));
     } finally {
@@ -61,35 +64,25 @@ export function useAccount(): UseAccountReturn {
 // ─── Mutation API helpers ──────────────────────────────────────────────────────
 
 export const accountApi = {
+  // PATCH /account — strict backend schema: bizName/bizAddress/logoUrl/
+  // currency/aiTone/readReceipts only. The logo is a URL (no upload endpoint).
   updateBusiness: async (
-    payload: UpdateBusinessDetailsPayload & { logoFile?: File }
+    payload: UpdateBusinessDetailsPayload
   ): Promise<AuthUser> => {
-    // If logo file present, use multipart/form-data
-    if (payload.logoFile) {
-      const form = new FormData();
-      form.append("businessName", payload.businessName);
-      form.append("businessAddress", payload.businessAddress);
-      form.append("currency", payload.currency);
-      form.append("logo", payload.logoFile);
-      const { data } = await api.patch<{ data: AuthUser }>("/account", form, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
-      return data.data;
-    }
-
-    const { data } = await api.patch<{ data: AuthUser }>("/account", {
-      businessName: payload.businessName,
-      businessAddress: payload.businessAddress,
+    const { data } = await api.patch<AuthUser>("/account", {
+      bizName: payload.bizName,
+      bizAddress: payload.bizAddress,
       currency: payload.currency,
+      ...(payload.logoUrl ? { logoUrl: payload.logoUrl } : {}),
     });
-    return data.data;
+    return data;
   },
 
   updatePreferences: async (
     payload: UpdatePreferencesPayload
   ): Promise<AuthUser> => {
-    const { data } = await api.patch<{ data: AuthUser }>("/account", payload);
-    return data.data;
+    const { data } = await api.patch<AuthUser>("/account", payload);
+    return data;
   },
 
   changePassword: async (payload: ChangePasswordPayload): Promise<void> => {

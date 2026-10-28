@@ -14,8 +14,6 @@ interface UseInvoicesOptions {
   status?: string;
   search?: string;
   page?: number;
-  pageSize?: number;
-  /** Alias for pageSize */
   limit?: number;
   clientId?: string;
 }
@@ -30,8 +28,7 @@ interface UseInvoicesReturn {
 }
 
 export function useInvoices(options: UseInvoicesOptions = {}): UseInvoicesReturn {
-  const { status, search, page = 1, pageSize, limit, clientId } = options;
-  const effectivePageSize = pageSize ?? limit ?? 10;
+  const { status, search, page = 1, limit = 20, clientId } = options;
 
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [total, setTotal] = useState(0);
@@ -48,7 +45,7 @@ export function useInvoices(options: UseInvoicesOptions = {}): UseInvoicesReturn
       if (search) params.set("search", search);
       if (clientId) params.set("clientId", clientId);
       params.set("page", String(page));
-      params.set("pageSize", String(effectivePageSize));
+      params.set("limit", String(limit));
 
       const { data } = await api.get<PaginatedResponse<Invoice>>(
         `/invoices?${params.toString()}`
@@ -61,7 +58,7 @@ export function useInvoices(options: UseInvoicesOptions = {}): UseInvoicesReturn
     } finally {
       setIsLoading(false);
     }
-  }, [status, search, page, pageSize, clientId]);
+  }, [status, search, page, limit, clientId]);
 
   useEffect(() => {
     void fetch();
@@ -86,8 +83,9 @@ export function useInvoice(id: string): UseInvoiceReturn {
     setIsLoading(true);
     setError(null);
     try {
-      const { data } = await api.get<{ data: Invoice }>(`/invoices/${id}`);
-      setInvoice(data.data);
+      // Backend returns the invoice object directly (no data wrapper)
+      const { data } = await api.get<Invoice>(`/invoices/${id}`);
+      setInvoice(data);
     } catch (err) {
       setError(extractError(err));
     } finally {
@@ -104,30 +102,30 @@ export function useInvoice(id: string): UseInvoiceReturn {
 
 export const invoiceApi = {
   create: async (payload: CreateInvoiceRequest): Promise<Invoice> => {
-    const { data } = await api.post<{ data: Invoice }>("/invoices", payload);
-    return data.data;
+    const { data } = await api.post<Invoice>("/invoices", payload);
+    return data;
   },
 
   update: async (id: string, payload: UpdateInvoiceRequest): Promise<Invoice> => {
-    const { data } = await api.patch<{ data: Invoice }>(`/invoices/${id}`, payload);
-    return data.data;
+    const { data } = await api.patch<Invoice>(`/invoices/${id}`, payload);
+    return data;
   },
 
   send: async (id: string, customMessage?: string): Promise<Invoice> => {
-    const { data } = await api.post<{ data: Invoice }>(`/invoices/${id}/send`, {
+    const { data } = await api.post<Invoice>(`/invoices/${id}/send`, {
       customMessage,
     });
-    return data.data;
+    return data;
   },
 
   markPaid: async (id: string): Promise<Invoice> => {
-    const { data } = await api.post<{ data: Invoice }>(`/invoices/${id}/mark-paid`);
-    return data.data;
+    const { data } = await api.post<Invoice>(`/invoices/${id}/mark-paid`);
+    return data;
   },
 
   void: async (id: string): Promise<Invoice> => {
-    const { data } = await api.post<{ data: Invoice }>(`/invoices/${id}/void`);
-    return data.data;
+    const { data } = await api.post<Invoice>(`/invoices/${id}/void`);
+    return data;
   },
 
   delete: async (id: string): Promise<void> => {
@@ -141,11 +139,16 @@ export const invoiceApi = {
     return data;
   },
 
-  getAiSuggestion: async (id: string): Promise<AiFollowUpSuggestion> => {
-    const { data } = await api.post<{ data: AiFollowUpSuggestion }>(
-      `/invoices/${id}/ai-followup`
-    );
-    return data.data;
+  // Backend route: POST /v1/ai/follow-up with { invoiceId, tone? }
+  getAiSuggestion: async (
+    id: string,
+    tone?: AiTone
+  ): Promise<AiFollowUpSuggestion> => {
+    const { data } = await api.post<AiFollowUpSuggestion>("/ai/follow-up", {
+      invoiceId: id,
+      ...(tone ? { tone } : {}),
+    });
+    return data;
   },
 
   sendFollowUp: async (
@@ -168,10 +171,11 @@ export function useFollowUps(invoiceId: string) {
     setIsLoading(true);
     setError(null);
     try {
-      const { data } = await api.get<{ data: FollowUp[] }>(
+      // Backend returns the follow-up array directly (no data wrapper)
+      const { data } = await api.get<FollowUp[]>(
         `/invoices/${invoiceId}/followups`
       );
-      setFollowUps(data.data);
+      setFollowUps(data);
     } catch (err) {
       setError(extractError(err));
     } finally {
@@ -193,11 +197,8 @@ export function useGenerateAiSuggestion(invoiceId: string) {
   const generate = useCallback(async (tone?: AiTone) => {
     setIsGenerating(true);
     try {
-      const { data } = await api.post<{ data: AiFollowUpSuggestion }>(
-        `/invoices/${invoiceId}/ai-followup`,
-        tone ? { tone } : {}
-      );
-      setSuggestion(data.data);
+      const data = await invoiceApi.getAiSuggestion(invoiceId, tone);
+      setSuggestion(data);
     } catch {
       // swallow; UI keeps previous suggestion
     } finally {
@@ -215,7 +216,7 @@ export function useSendFollowUp(invoiceId: string) {
     async (subject: string, body: string) => {
       setIsSending(true);
       try {
-        await api.post(`/invoices/${invoiceId}/followups`, { subject, body });
+        await invoiceApi.sendFollowUp(invoiceId, subject, body);
       } finally {
         setIsSending(false);
       }

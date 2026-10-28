@@ -1,7 +1,8 @@
 import axios, { AxiosInstance, InternalAxiosRequestConfig, AxiosError } from "axios";
 import { useAuthStore } from "@/store/authStore";
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api";
+// Backend serves the API under /v1 (see backend/src/app.ts)
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/v1";
 
 // ─── Axios Instance ───────────────────────────────────────────────────────────
 
@@ -47,7 +48,18 @@ api.interceptors.response.use(
       _retry?: boolean;
     };
 
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    // Never attempt a token refresh for auth endpoints themselves: a 401
+    // from /auth/login means bad credentials, and refreshing would just
+    // trigger a pointless /auth/refresh round-trip (burning the shared
+    // auth rate-limit bucket) before surfacing the original error.
+    const url = originalRequest.url ?? "";
+    const isAuthEndpoint = url.startsWith("/auth/");
+
+    if (
+      error.response?.status === 401 &&
+      !originalRequest._retry &&
+      !isAuthEndpoint
+    ) {
       if (isRefreshing) {
         return new Promise((resolve, reject) => {
           failedQueue.push({ resolve, reject });
@@ -101,8 +113,14 @@ api.interceptors.response.use(
 
 export function extractError(error: unknown): string {
   if (axios.isAxiosError(error)) {
-    const data = error.response?.data as { message?: string } | undefined;
-    return data?.message ?? error.message ?? "An unexpected error occurred";
+    // Backend error envelope: { success: false, error: { code, message } }
+    const data = error.response?.data as
+      | { error?: { message?: string } | string; message?: string }
+      | undefined;
+    if (typeof data?.error === "string") return data.error;
+    if (data?.error?.message) return data.error.message;
+    if (data?.message) return data.message;
+    return error.message || "An unexpected error occurred";
   }
   if (error instanceof Error) return error.message;
   return "An unexpected error occurred";

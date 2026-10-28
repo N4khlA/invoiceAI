@@ -18,10 +18,11 @@ export function useDashboard(): UseDashboardReturn {
     setIsLoading(true);
     setError(null);
     try {
-      const { data: response } = await api.get<{ data: DashboardData }>(
-        "/dashboard"
+      // Backend returns the dashboard object directly (no data wrapper)
+      const { data: response } = await api.get<DashboardData>(
+        "/dashboard/summary"
       );
-      setData(response.data);
+      setData(response);
     } catch (err) {
       setError(extractError(err));
     } finally {

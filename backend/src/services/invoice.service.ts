@@ -92,6 +92,7 @@ export interface UpdateClientInput {
   phone?: string;
   company?: string;
   notes?: string;
+  isArchived?: boolean;
 }
 
 export async function updateClient(id: string, userId: string, input: UpdateClientInput) {
