@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
@@ -45,6 +45,16 @@ function LoginForm() {
     await signIn(DEMO_CREDENTIALS);
     setDemoLoading(false);
   };
+
+  // /login?demo=1 (from the landing page) signs straight into the demo
+  const autoDemo = useRef(false);
+  useEffect(() => {
+    if (params.get("demo") === "1" && !autoDemo.current) {
+      autoDemo.current = true;
+      void tryDemo();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <>
