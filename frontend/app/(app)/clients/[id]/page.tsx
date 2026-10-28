@@ -115,15 +115,15 @@ export default function ClientDetailPage() {
         }
       />
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-3 gap-3 sm:gap-4">
         {[
-          { label: "Total invoiced", value: s.totalInvoiced },
+          { label: "Invoiced", value: s.totalInvoiced },
           { label: "Paid", value: s.totalPaid },
           { label: "Outstanding", value: s.outstanding },
         ].map((t) => (
-          <Card key={t.label} className="p-5">
-            <p className="text-sm font-medium text-muted-foreground">{t.label}</p>
-            <p className="tabular mt-2 font-display text-2xl font-bold text-foreground">{formatCurrency(t.value, currency)}</p>
+          <Card key={t.label} className="p-3 sm:p-5">
+            <p className="text-xs font-medium text-muted-foreground sm:text-sm">{t.label}</p>
+            <p className="tabular mt-1.5 truncate font-display text-[15px] font-bold text-foreground sm:mt-2 sm:text-2xl">{formatCurrency(t.value, currency)}</p>
           </Card>
         ))}
       </div>

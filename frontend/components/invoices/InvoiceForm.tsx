@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Controller, useFieldArray, useForm } from "react-hook-form";
@@ -94,17 +94,14 @@ export function InvoiceForm({ invoice, defaultClientId }: InvoiceFormProps) {
   const issueDate = watch("issueDate");
   const dueDate = watch("dueDate");
 
-  const totals = useMemo(
-    () =>
-      lineItems.reduce(
-        (acc, item) => {
-          const sub = num(item.quantity) * num(item.unitPrice);
-          const tax = sub * (num(item.taxPct) / 100);
-          return { sub: acc.sub + sub, tax: acc.tax + tax };
-        },
-        { sub: 0, tax: 0 }
-      ),
-    [lineItems]
+  // watch() mutates the same array in place, so compute on every render (cheap)
+  const totals = lineItems.reduce(
+    (acc, item) => {
+      const sub = num(item.quantity) * num(item.unitPrice);
+      const tax = sub * (num(item.taxPct) / 100);
+      return { sub: acc.sub + sub, tax: acc.tax + tax };
+    },
+    { sub: 0, tax: 0 }
   );
 
   const onSubmit = async (values: InvoiceFormValues) => {
@@ -140,7 +137,7 @@ export function InvoiceForm({ invoice, defaultClientId }: InvoiceFormProps) {
   const noClients = !clientsLoading && clients.length === 0;
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} noValidate className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_320px]">
+    <form onSubmit={handleSubmit(onSubmit)} noValidate className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_320px]">
       <div className="min-w-0 space-y-6">
         <FormError message={serverError} />
 
@@ -223,65 +220,26 @@ export function InvoiceForm({ invoice, defaultClientId }: InvoiceFormProps) {
         <Card>
           <CardHeader title="Line items" description="Quantity × rate, with optional tax per line." />
           <div className="p-5">
-            <div className="mb-2 hidden grid-cols-[1fr_88px_120px_80px_110px_40px] gap-3 text-xs font-medium uppercase tracking-wide text-muted-foreground md:grid">
-              <span>Description</span>
-              <span>Qty</span>
-              <span>Rate</span>
-              <span>Tax %</span>
-              <span className="text-right">Amount</span>
-              <span className="sr-only">Remove</span>
-            </div>
-
             <ol className="space-y-3">
               {fields.map((field, idx) => {
                 const item = lineItems[idx];
                 const amount = num(item?.quantity) * num(item?.unitPrice) * (1 + num(item?.taxPct) / 100);
                 const err = errors.lineItems?.[idx];
                 return (
-                  <li
-                    key={field.id}
-                    className="grid grid-cols-2 gap-3 rounded-lg border border-border p-3 md:grid-cols-[1fr_88px_120px_80px_110px_40px] md:items-start md:border-0 md:p-0"
-                  >
-                    <div className="col-span-2 md:col-span-1">
-                      <Input
-                        placeholder="e.g. Website redesign"
-                        aria-label={`Line ${idx + 1} description`}
-                        aria-invalid={err?.description ? true : undefined}
-                        {...register(`lineItems.${idx}.description`)}
-                      />
-                      {err?.description && <p className="mt-1 text-xs text-destructive">{err.description.message}</p>}
-                    </div>
-                    {(["quantity", "unitPrice", "taxPct"] as const).map((key) => (
-                      <div key={key}>
-                        <label className="mb-1 block text-xs font-medium text-muted-foreground md:sr-only" htmlFor={`${field.id}-${key}`}>
-                          {key === "quantity" ? "Qty" : key === "unitPrice" ? "Rate" : "Tax %"}
+                  <li key={field.id} className="rounded-lg border border-border bg-background/40 p-3 sm:p-4">
+                    <div className="flex items-start gap-2">
+                      <div className="min-w-0 flex-1">
+                        <label className="sr-only" htmlFor={`${field.id}-description`}>
+                          Line {idx + 1} description
                         </label>
-                        <Controller
-                          control={control}
-                          name={`lineItems.${idx}.${key}`}
-                          render={({ field: f }) => (
-                            <Input
-                              id={`${field.id}-${key}`}
-                              type="number"
-                              inputMode="decimal"
-                              step="any"
-                              min={0}
-                              className="tabular"
-                              aria-invalid={err?.[key] ? true : undefined}
-                              value={Number.isNaN(f.value) ? "" : f.value}
-                              onChange={(e) => f.onChange(e.target.value === "" ? NaN : e.target.valueAsNumber)}
-                              onBlur={f.onBlur}
-                            />
-                          )}
+                        <Input
+                          id={`${field.id}-description`}
+                          placeholder="What did you do? e.g. Website redesign"
+                          aria-invalid={err?.description ? true : undefined}
+                          {...register(`lineItems.${idx}.description`)}
                         />
-                        {err?.[key] && <p className="mt-1 text-xs text-destructive">{err[key]?.message}</p>}
+                        {err?.description && <p className="mt-1 text-xs text-destructive">{err.description.message}</p>}
                       </div>
-                    ))}
-                    <div className="flex items-center justify-between md:block md:pt-2.5 md:text-right">
-                      <span className="text-xs font-medium text-muted-foreground md:hidden">Amount</span>
-                      <span className="tabular text-sm font-semibold text-foreground">{formatCurrency(amount, currency)}</span>
-                    </div>
-                    <div className="col-span-2 flex justify-end md:col-span-1">
                       <Button
                         type="button"
                         variant="ghost"
@@ -293,6 +251,38 @@ export function InvoiceForm({ invoice, defaultClientId }: InvoiceFormProps) {
                       >
                         <Trash2 aria-hidden />
                       </Button>
+                    </div>
+                    <div className="mt-3 grid grid-cols-3 gap-3 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end">
+                      {(["quantity", "unitPrice", "taxPct"] as const).map((key) => (
+                        <div key={key} className="min-w-0">
+                          <label className="mb-1 block text-xs font-medium text-muted-foreground" htmlFor={`${field.id}-${key}`}>
+                            {key === "quantity" ? "Qty" : key === "unitPrice" ? "Rate" : "Tax %"}
+                          </label>
+                          <Controller
+                            control={control}
+                            name={`lineItems.${idx}.${key}`}
+                            render={({ field: f }) => (
+                              <Input
+                                id={`${field.id}-${key}`}
+                                type="number"
+                                inputMode="decimal"
+                                step="any"
+                                min={0}
+                                className="tabular"
+                                aria-invalid={err?.[key] ? true : undefined}
+                                value={Number.isNaN(f.value) ? "" : f.value}
+                                onChange={(e) => f.onChange(e.target.value === "" ? NaN : e.target.valueAsNumber)}
+                                onBlur={f.onBlur}
+                              />
+                            )}
+                          />
+                          {err?.[key] && <p className="mt-1 text-xs text-destructive">{err[key]?.message}</p>}
+                        </div>
+                      ))}
+                      <div className="col-span-3 flex items-center justify-between border-t border-border pt-3 sm:col-span-1 sm:block sm:min-w-[110px] sm:border-0 sm:pb-2.5 sm:pt-0 sm:text-right">
+                        <span className="text-xs font-medium text-muted-foreground sm:block">Amount</span>
+                        <span className="tabular text-sm font-semibold text-foreground">{formatCurrency(amount, currency)}</span>
+                      </div>
                     </div>
                   </li>
                 );
@@ -332,7 +322,7 @@ export function InvoiceForm({ invoice, defaultClientId }: InvoiceFormProps) {
       </div>
 
       {/* Summary */}
-      <aside className="lg:sticky lg:top-6 lg:self-start">
+      <aside className="xl:sticky xl:top-6 xl:self-start">
         <Card>
           <CardHeader title="Summary" />
           <dl className="tabular space-y-2.5 p-5 text-sm">

@@ -28,20 +28,20 @@ function StatTile({
   tone?: "default" | "danger";
 }) {
   return (
-    <Card className="p-5">
-      <div className="flex items-center justify-between">
-        <p className="text-sm font-medium text-muted-foreground">{label}</p>
+    <Card className="p-4 sm:p-5">
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-[13px] font-medium leading-tight text-muted-foreground sm:text-sm">{label}</p>
         <span
           className={cn(
-            "flex size-8 items-center justify-center rounded-lg",
+            "flex size-8 shrink-0 items-center justify-center rounded-lg",
             tone === "danger" ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary"
           )}
         >
           <Icon className="size-4" aria-hidden />
         </span>
       </div>
-      <p className="tabular mt-3 font-display text-2xl font-bold text-foreground sm:text-[26px]">{value}</p>
-      {hint && <div className="mt-1 text-xs text-muted-foreground">{hint}</div>}
+      <p className="tabular mt-2 font-display text-lg font-bold text-foreground sm:mt-3 sm:text-[26px]">{value}</p>
+      {hint && <div className="mt-1 hidden text-xs text-muted-foreground min-[480px]:block">{hint}</div>}
     </Card>
   );
 }
@@ -79,7 +79,7 @@ export default function DashboardPage() {
       />
 
       {/* Stat tiles */}
-      <section aria-label="Key figures" className="grid grid-cols-1 gap-4 min-[480px]:grid-cols-2 xl:grid-cols-4">
+      <section aria-label="Key figures" className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         {isLoading || !data ? (
           Array.from({ length: 4 }).map((_, i) => (
             <Card key={i} className="space-y-4 p-5">

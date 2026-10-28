@@ -7,7 +7,7 @@ import { api, extractError } from "@/lib/api";
 import { useAuthStore } from "@/store/authStore";
 import type { AuthUser, BillingStatus } from "@/types";
 import { cn } from "@/lib/formatters";
-import { Badge, Button, Card, CardHeader, ErrorState, Page, PageHeader, Skeleton, toast } from "@/components/ui";
+import { Badge, Button, Card, CardHeader, ConfirmDialog, ErrorState, Page, PageHeader, Skeleton, toast } from "@/components/ui";
 
 const FREE_INVOICE_LIMIT = 5;
 
@@ -63,6 +63,7 @@ function BillingContent() {
   const [status, setStatus] = useState<BillingStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [redirecting, setRedirecting] = useState<"checkout" | "portal" | null>(null);
+  const [confirmDowngrade, setConfirmDowngrade] = useState(false);
 
   const load = useCallback(async () => {
     setError(null);
@@ -184,7 +185,7 @@ function BillingContent() {
                     Upgrade to Pro
                   </Button>
                 ) : (
-                  <Button variant="outline" className="w-full" onClick={() => go("portal")} loading={redirecting === "portal"} disabled={!status}>
+                  <Button variant="outline" className="w-full" onClick={() => setConfirmDowngrade(true)} disabled={!status}>
                     Downgrade
                   </Button>
                 )}
@@ -194,6 +195,17 @@ function BillingContent() {
         })}
       </div>
       <p className="text-center text-xs text-muted-foreground">Payments are processed securely by Stripe. Prices in USD.</p>
+
+      <ConfirmDialog
+        open={confirmDowngrade}
+        title="Downgrade to Free?"
+        description="You'll be limited to 5 invoices a month. Your clients and existing invoices stay exactly as they are."
+        confirmLabel="Continue"
+        destructive
+        isLoading={redirecting === "portal"}
+        onConfirm={() => go("portal")}
+        onCancel={() => setConfirmDowngrade(false)}
+      />
     </div>
   );
 }

@@ -23,6 +23,30 @@ api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   return config;
 });
 
+// ─── Single-flight token refresh ──────────────────────────────────────────────
+// Refresh tokens rotate on every use, so two concurrent /auth/refresh calls
+// (StrictMode double effects, a reload racing a 401 retry, …) would make the
+// second one fail and log the user out. Everyone shares one in-flight call.
+
+let refreshInFlight: Promise<{ accessToken: string; user: AuthUser }> | null = null;
+
+function refreshTokens() {
+  if (!refreshInFlight) {
+    refreshInFlight = axios
+      .post<{ accessToken: string; user: AuthUser }>(`${BASE_URL}/auth/refresh`, {}, { withCredentials: true })
+      .then(({ data }) => {
+        const { user, setAuth } = useAuthStore.getState();
+        // Keep richer /account fields already in the store
+        setAuth({ ...user, ...data.user }, data.accessToken);
+        return data;
+      })
+      .finally(() => {
+        refreshInFlight = null;
+      });
+  }
+  return refreshInFlight;
+}
+
 // ─── Response Interceptor — handle 401, refresh token ────────────────────────
 
 let isRefreshing = false;
@@ -79,14 +103,7 @@ api.interceptors.response.use(
 
       try {
         // Refresh token is sent via HttpOnly cookie automatically
-        const { data } = await axios.post<{ accessToken: string }>(
-          `${BASE_URL}/auth/refresh`,
-          {},
-          { withCredentials: true }
-        );
-
-        const newToken = data.accessToken;
-        useAuthStore.getState().setAccessToken(newToken);
+        const newToken = (await refreshTokens()).accessToken;
 
         processQueue(null, newToken);
 
@@ -132,14 +149,7 @@ export async function getFeatures(): Promise<ApiFeatures | null> {
 /** Restore a session from the HttpOnly refresh cookie. Returns false if none. */
 export async function restoreSession(): Promise<boolean> {
   try {
-    const { data } = await axios.post<{ accessToken: string; user: AuthUser }>(
-      `${BASE_URL}/auth/refresh`,
-      {},
-      { withCredentials: true }
-    );
-    const { user, setAuth } = useAuthStore.getState();
-    // Keep richer /account fields already in the store
-    setAuth({ ...user, ...data.user }, data.accessToken);
+    await refreshTokens();
     return true;
   } catch {
     return false;
