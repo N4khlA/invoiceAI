@@ -155,8 +155,9 @@ export const invoiceApi = {
     id: string,
     subject: string,
     body: string
-  ): Promise<void> => {
-    await api.post(`/invoices/${id}/followups`, { subject, body });
+  ): Promise<FollowUp> => {
+    const { data } = await api.post<FollowUp>(`/invoices/${id}/followups`, { subject, body });
+    return data;
   },
 };
 
@@ -188,41 +189,4 @@ export function useFollowUps(invoiceId: string) {
   }, [fetch]);
 
   return { followUps, isLoading, error, refetch: fetch };
-}
-
-export function useGenerateAiSuggestion(invoiceId: string) {
-  const [suggestion, setSuggestion] = useState<AiFollowUpSuggestion | null>(null);
-  const [isGenerating, setIsGenerating] = useState(false);
-
-  const generate = useCallback(async (tone?: AiTone) => {
-    setIsGenerating(true);
-    try {
-      const data = await invoiceApi.getAiSuggestion(invoiceId, tone);
-      setSuggestion(data);
-    } catch {
-      // swallow; UI keeps previous suggestion
-    } finally {
-      setIsGenerating(false);
-    }
-  }, [invoiceId]);
-
-  return { suggestion, isGenerating, generate };
-}
-
-export function useSendFollowUp(invoiceId: string) {
-  const [isSending, setIsSending] = useState(false);
-
-  const sendFollowUp = useCallback(
-    async (subject: string, body: string) => {
-      setIsSending(true);
-      try {
-        await invoiceApi.sendFollowUp(invoiceId, subject, body);
-      } finally {
-        setIsSending(false);
-      }
-    },
-    [invoiceId]
-  );
-
-  return { isSending, sendFollowUp };
 }

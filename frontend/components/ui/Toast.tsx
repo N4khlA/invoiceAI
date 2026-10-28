@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CheckCircle, XCircle, X } from "lucide-react";
+import { CheckCircle2, Info, XCircle, X } from "lucide-react";
 import { cn } from "@/lib/formatters";
 
-export type ToastVariant = "success" | "error";
+export type ToastVariant = "success" | "error" | "info";
 
 interface ToastMessage {
   id: number;
@@ -22,17 +22,24 @@ export function toast(message: string, variant: ToastVariant = "success") {
   listeners.forEach((l) => l(msg));
 }
 
-// ─── ToastContainer — mount once in layout ──────────────────────────────────
+const ICONS = { success: CheckCircle2, error: XCircle, info: Info };
+const TONES = {
+  success: "text-success",
+  error: "text-destructive",
+  info: "text-primary",
+};
+
+// ─── ToastContainer — mounted once in <Providers> ───────────────────────────
 
 export function ToastContainer() {
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
   useEffect(() => {
     const handler = (msg: ToastMessage) => {
-      setToasts((prev) => [...prev, msg]);
+      setToasts((prev) => [...prev.slice(-2), msg]);
       setTimeout(() => {
         setToasts((prev) => prev.filter((t) => t.id !== msg.id));
-      }, 4000);
+      }, msg.variant === "error" ? 6000 : 4000);
     };
     listeners.push(handler);
     return () => {
@@ -41,37 +48,31 @@ export function ToastContainer() {
     };
   }, []);
 
-  if (toasts.length === 0) return null;
-
   return (
-    <div className="fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none">
-      {toasts.map((t) => (
-        <div
-          key={t.id}
-          className={cn(
-            "flex items-center gap-3 rounded-lg border px-4 py-3 shadow-lg pointer-events-auto",
-            "animate-in slide-in-from-bottom-4 fade-in duration-200",
-            t.variant === "success"
-              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
-              : "border-red-500/30 bg-red-500/10 text-red-400"
-          )}
-        >
-          {t.variant === "success" ? (
-            <CheckCircle className="h-4 w-4 shrink-0" />
-          ) : (
-            <XCircle className="h-4 w-4 shrink-0" />
-          )}
-          <span className="text-sm font-medium">{t.message}</span>
-          <button
-            onClick={() =>
-              setToasts((prev) => prev.filter((x) => x.id !== t.id))
-            }
-            className="ml-auto opacity-60 hover:opacity-100 transition-opacity"
+    <div
+      aria-live="polite"
+      className="pointer-events-none fixed inset-x-4 bottom-4 z-[60] flex flex-col items-center gap-2 sm:inset-x-auto sm:right-5 sm:items-end"
+    >
+      {toasts.map((t) => {
+        const Icon = ICONS[t.variant];
+        return (
+          <div
+            key={t.id}
+            role={t.variant === "error" ? "alert" : "status"}
+            className="pointer-events-auto flex w-full max-w-sm animate-slide-up items-start gap-3 rounded-xl border border-border bg-popover px-4 py-3 text-popover-foreground shadow-pop"
           >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      ))}
+            <Icon className={cn("mt-0.5 size-4 shrink-0", TONES[t.variant])} aria-hidden />
+            <span className="flex-1 text-sm font-medium">{t.message}</span>
+            <button
+              onClick={() => setToasts((prev) => prev.filter((x) => x.id !== t.id))}
+              className="-m-1 cursor-pointer rounded p-1 text-muted-foreground transition-colors hover:text-foreground"
+              aria-label="Dismiss notification"
+            >
+              <X className="size-3.5" aria-hidden />
+            </button>
+          </div>
+        );
+      })}
     </div>
   );
 }

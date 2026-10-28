@@ -1,388 +1,314 @@
 "use client";
 
-import { useParams } from "next/navigation";
-import Link from "next/link";
 import { useState } from "react";
+import Link from "next/link";
+import { useParams, useRouter } from "next/navigation";
+import { Ban, CheckCircle2, Copy, Download, ExternalLink, Pencil, Printer, Send, Sparkles, Trash2 } from "lucide-react";
+import { useInvoice, useFollowUps, invoiceApi } from "@/hooks/useInvoices";
+import { useAuthStore } from "@/store/authStore";
+import { extractError } from "@/lib/api";
+import { formatCurrency, formatDate, getDaysOverdue } from "@/lib/formatters";
+import type { InvoiceStatus } from "@/types";
 import {
-  useInvoice,
-  useFollowUps,
-  useGenerateAiSuggestion,
-  useSendFollowUp,
-} from "@/hooks/useInvoices";
-import { invoiceApi } from "@/hooks/useInvoices";
-import { formatCurrency } from "@/lib/formatters";
-import { AiTone, InvoiceStatus } from "@/types";
-import {
-  ArrowLeft,
-  Send,
-  Download,
-  Bot,
-  CheckCircle,
-  Trash2,
-} from "lucide-react";
-import { cn } from "@/lib/formatters";
+  Button,
+  Card,
+  CardHeader,
+  ConfirmDialog,
+  ErrorState,
+  Menu,
+  Page,
+  PageHeader,
+  Skeleton,
+  StatusBadge,
+  toast,
+  type MenuItem,
+} from "@/components/ui";
+import { InvoicePaper, type PaperParty } from "@/components/invoices/InvoicePaper";
 import { StatusTimeline } from "@/components/invoices/StatusTimeline";
 import { FollowUpPanel } from "@/components/invoices/FollowUpPanel";
 import { AiSuggestionModal } from "@/components/invoices/AiSuggestionModal";
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+const OPEN: InvoiceStatus[] = ["SENT", "VIEWED", "OVERDUE"];
 
-const STATUS_STYLES: Record<InvoiceStatus, string> = {
-  DRAFT: "bg-muted text-muted-foreground",
-  SENT: "bg-blue-500/15 text-blue-400",
-  VIEWED: "bg-purple-500/15 text-purple-400",
-  OVERDUE: "bg-red-500/15 text-red-400",
-  PAID: "bg-emerald-500/15 text-emerald-400",
-  VOID: "bg-zinc-500/15 text-zinc-400",
-};
-
-const CAN_FOLLOW_UP: InvoiceStatus[] = ["SENT", "VIEWED", "OVERDUE"];
-
-// ─── Page ──────────────────────────────────────────────────────────────────────
+type Confirm = "send" | "paid" | "void" | "delete" | null;
 
 export default function InvoiceDetailPage() {
   const { id } = useParams<{ id: string }>();
-
-  // Data
+  const router = useRouter();
+  const user = useAuthStore((s) => s.user);
   const { invoice, isLoading, error, refetch } = useInvoice(id);
-  const { followUps, isLoading: followUpsLoading, refetch: refetchFollowUps } =
-    useFollowUps(id);
+  const { followUps, isLoading: followUpsLoading, refetch: refetchFollowUps } = useFollowUps(id);
 
-  // Actions
-  const { suggestion, isGenerating, generate } = useGenerateAiSuggestion(id);
-  const { isSending, sendFollowUp } = useSendFollowUp(id);
+  const [confirm, setConfirm] = useState<Confirm>(null);
+  const [busy, setBusy] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
 
-  // UI state
-  const [isSendingInvoice, setIsSendingInvoice] = useState(false);
-  const [isMarkingPaid, setIsMarkingPaid] = useState(false);
-  const [isVoiding, setIsVoiding] = useState(false);
-  const [aiModalOpen, setAiModalOpen] = useState(false);
-  const [tone, setTone] = useState<AiTone>("FRIENDLY");
-
-  // ── Derived flags ──────────────────────────────────────────────────────────
-  if (error)
+  if (error) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <p className="text-destructive text-sm">{error}</p>
-      </div>
+      <Page>
+        <PageHeader title="Invoice" back={{ href: "/invoices", label: "Invoices" }} />
+        <ErrorState message={error} onRetry={refetch} />
+      </Page>
     );
+  }
 
-  if (isLoading || !invoice)
+  if (isLoading || !invoice) {
     return (
-      <div className="p-6 max-w-4xl mx-auto space-y-4">
-        {[...Array(6)].map((_, i) => (
-          <div key={i} className="rounded-xl h-16 bg-muted/20 animate-pulse" />
-        ))}
-      </div>
+      <Page>
+        <Skeleton className="mb-8 h-16 w-64" />
+        <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
+          <Skeleton className="h-[560px] rounded-xl" />
+          <Skeleton className="h-[320px] rounded-xl" />
+        </div>
+      </Page>
     );
+  }
 
-  const canSend = invoice.status === "DRAFT";
-  const canMarkPaid =
-    invoice.status !== "PAID" &&
-    invoice.status !== "VOID" &&
-    invoice.status !== "DRAFT";
-  const canVoid = invoice.status !== "PAID" && invoice.status !== "VOID";
-  const canFollowUp = (CAN_FOLLOW_UP as string[]).includes(invoice.status);
+  const isOpen = OPEN.includes(invoice.status);
+  const publicUrl = typeof window !== "undefined" && invoice.viewToken ? `${window.location.origin}/invoices/view/${invoice.viewToken}` : "";
+  const snapshot = invoice.snapshotData;
+  const business: PaperParty = snapshot?.business ?? {
+    name: user?.bizName,
+    email: user?.email,
+    address: user?.bizAddress,
+    phone: user?.bizPhone,
+    website: user?.bizWebsite,
+  };
+  const client: PaperParty = snapshot?.client ?? invoice.client ?? { name: "—" };
 
-  // ── Handlers ───────────────────────────────────────────────────────────────
-  const handleSend = async () => {
-    setIsSendingInvoice(true);
+  const run = async (action: () => Promise<unknown>, success: string) => {
+    setBusy(true);
     try {
-      await invoiceApi.send(id);
+      await action();
+      toast(success);
+      setConfirm(null);
       refetch();
+    } catch (err) {
+      toast(extractError(err), "error");
     } finally {
-      setIsSendingInvoice(false);
+      setBusy(false);
     }
   };
 
-  const handleMarkPaid = async () => {
-    setIsMarkingPaid(true);
+  const handleDelete = async () => {
+    setBusy(true);
     try {
-      await invoiceApi.markPaid(id);
-      refetch();
-    } finally {
-      setIsMarkingPaid(false);
+      await invoiceApi.delete(id);
+      toast(`Draft ${invoice.number} deleted`);
+      router.push("/invoices");
+    } catch (err) {
+      toast(extractError(err), "error");
+      setBusy(false);
     }
   };
 
-  const handleVoid = async () => {
-    if (!confirm("Void this invoice? This cannot be undone.")) return;
-    setIsVoiding(true);
+  const downloadPdf = async () => {
+    setDownloading(true);
     try {
-      await invoiceApi.void(id);
-      refetch();
+      const blob = await invoiceApi.downloadPdf(id);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `invoice-${invoice.number}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast("PDF generation isn't available right now — use Print instead.", "error");
     } finally {
-      setIsVoiding(false);
+      setDownloading(false);
     }
   };
 
-  const handleOpenAiModal = async () => {
-    setAiModalOpen(true);
-    if (!suggestion) {
-      await generate(tone);
+  const copyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(publicUrl);
+      toast("Client link copied");
+    } catch {
+      toast("Couldn't copy — select the link manually.", "error");
     }
   };
 
-  const handleToneChange = async (newTone: AiTone) => {
-    setTone(newTone);
-    await generate(newTone);
-  };
+  const menu: MenuItem[] = [
+    { label: "Print", icon: Printer, onSelect: () => window.print() },
+    ...(invoice.status !== "DRAFT" && publicUrl
+      ? [{ label: "Open client view", icon: ExternalLink, onSelect: () => window.open(publicUrl, "_blank", "noopener") }]
+      : []),
+    ...(invoice.status !== "PAID" && invoice.status !== "VOID"
+      ? [{ label: "Void invoice", icon: Ban, onSelect: () => setConfirm("void"), destructive: true }]
+      : []),
+    ...(invoice.status === "DRAFT" ? [{ label: "Delete draft", icon: Trash2, onSelect: () => setConfirm("delete"), destructive: true }] : []),
+  ];
 
-  const handleSendFollowUp = async (subject: string, body: string) => {
-    await sendFollowUp(subject, body);
-    setAiModalOpen(false);
-    refetchFollowUps();
-  };
+  const daysOverdue = invoice.status === "OVERDUE" ? getDaysOverdue(invoice.dueDate) : 0;
 
-  // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <>
-      {/* AI Follow-up Modal */}
-      <AiSuggestionModal
-        open={aiModalOpen}
-        suggestion={suggestion}
-        isGenerating={isGenerating}
-        isSending={isSending}
-        tone={tone}
-        onToneChange={handleToneChange}
-        onRegenerate={() => generate(tone)}
-        onSend={handleSendFollowUp}
-        onClose={() => setAiModalOpen(false)}
+    <Page>
+      <PageHeader
+        back={{ href: "/invoices", label: "Invoices" }}
+        title={
+          <span className="flex flex-wrap items-center gap-3">
+            <span className="font-mono">{invoice.number}</span>
+            <StatusBadge status={invoice.status} className="font-sans" />
+          </span>
+        }
+        description={
+          <>
+            {client.name} · <span className="tabular font-medium text-foreground">{formatCurrency(invoice.total, invoice.currency)}</span> ·{" "}
+            {invoice.status === "PAID" ? `paid ${formatDate(invoice.paidAt)}` : `due ${formatDate(invoice.dueDate)}`}
+          </>
+        }
+        actions={
+          <div className="no-print flex flex-wrap items-center gap-2">
+            {invoice.status === "DRAFT" && (
+              <>
+                <Button asChild variant="outline">
+                  <Link href={`/invoices/${id}/edit`}>
+                    <Pencil aria-hidden />
+                    Edit
+                  </Link>
+                </Button>
+                <Button onClick={() => setConfirm("send")}>
+                  <Send aria-hidden />
+                  Send invoice
+                </Button>
+              </>
+            )}
+            {isOpen && (
+              <>
+                <Button variant="outline" onClick={() => setAiOpen(true)}>
+                  <Sparkles aria-hidden />
+                  Send reminder
+                </Button>
+                <Button onClick={() => setConfirm("paid")}>
+                  <CheckCircle2 aria-hidden />
+                  Mark as paid
+                </Button>
+              </>
+            )}
+            <Button variant="outline" size="icon" onClick={downloadPdf} loading={downloading} aria-label="Download PDF" title="Download PDF">
+              {!downloading && <Download aria-hidden />}
+            </Button>
+            <Menu items={menu} />
+          </div>
+        }
       />
 
-      <div className="p-6 max-w-4xl mx-auto space-y-6">
-        {/* Top nav ─────────────────────────────────────────────────────────── */}
-        <div className="flex items-center justify-between">
-          <Link
-            href="/invoices"
-            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            All Invoices
-          </Link>
-          <div className="flex gap-2 flex-wrap justify-end">
-            {canSend && (
-              <button
-                onClick={handleSend}
-                disabled={isSendingInvoice}
-                className="flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground hover:bg-indigo-500 transition-colors disabled:opacity-50"
-              >
-                <Send className="h-4 w-4" />
-                {isSendingInvoice ? "Sending…" : "Send Invoice"}
-              </button>
-            )}
-            {canFollowUp && (
-              <button
-                onClick={handleOpenAiModal}
-                className="flex items-center gap-2 rounded-lg bg-violet-600/80 px-3 py-2 text-sm font-semibold text-white hover:bg-violet-500 transition-colors"
-              >
-                <Bot className="h-4 w-4" />
-                AI Follow-up
-              </button>
-            )}
-            {canMarkPaid && (
-              <button
-                onClick={handleMarkPaid}
-                disabled={isMarkingPaid}
-                className="flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-500 transition-colors disabled:opacity-50"
-              >
-                <CheckCircle className="h-4 w-4" />
-                {isMarkingPaid ? "Updating…" : "Mark Paid"}
-              </button>
-            )}
-            <a
-              href={`/api/invoices/${id}/pdf`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-accent transition-colors"
-            >
-              <Download className="h-4 w-4" />
-              PDF
-            </a>
-            {canVoid && (
-              <button
-                onClick={handleVoid}
-                disabled={isVoiding}
-                className="flex items-center gap-2 rounded-lg border border-destructive/40 px-3 py-2 text-sm font-medium text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
-              >
-                <Trash2 className="h-4 w-4" />
-                {isVoiding ? "Voiding…" : "Void"}
-              </button>
-            )}
-          </div>
+      {invoice.status === "OVERDUE" && (
+        <div role="status" className="no-print mb-6 flex flex-col gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-foreground">
+            <span className="font-semibold text-destructive">{daysOverdue === 0 ? "Due today." : `${daysOverdue} days overdue.`}</span>{" "}
+            A short, polite reminder usually does the trick.
+          </p>
+          <Button size="sm" variant="destructive" onClick={() => setAiOpen(true)}>
+            <Sparkles aria-hidden />
+            Draft a reminder
+          </Button>
         </div>
+      )}
 
-        {/* Invoice header card ─────────────────────────────────────────────── */}
-        <div className="rounded-xl border border-border bg-card p-6 space-y-5">
-          <div className="flex items-start justify-between">
-            <div>
-              <p className="text-xs text-muted-foreground mb-1 font-mono">
-                {invoice.invoiceNumber}
-              </p>
-              <h1 className="text-xl font-bold text-foreground">
-                {invoice.client?.name ?? "Unknown Client"}
-              </h1>
-              <p className="text-sm text-muted-foreground">
-                {invoice.client?.email}
-              </p>
-            </div>
-            <span
-              className={cn(
-                "rounded-full px-3 py-1 text-sm font-medium shrink-0",
-                STATUS_STYLES[invoice.status]
-              )}
-            >
-              {invoice.status}
-            </span>
-          </div>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_320px]">
+        <InvoicePaper
+          number={invoice.number}
+          status={invoice.status}
+          issueDate={invoice.issueDate}
+          dueDate={invoice.dueDate}
+          currency={invoice.currency}
+          items={invoice.items}
+          subtotal={invoice.subtotal}
+          taxAmount={invoice.taxAmount}
+          total={invoice.total}
+          notes={invoice.notes}
+          terms={invoice.terms}
+          business={business}
+          client={client}
+          logoUrl={user?.logoUrl}
+        />
 
-          {/* Status timeline */}
-          <StatusTimeline invoice={invoice} />
+        <div className="no-print space-y-6">
+          {invoice.status !== "DRAFT" && publicUrl && (
+            <Card>
+              <CardHeader title="Client link" description="Anyone with this link can view the invoice." />
+              <div className="flex gap-2 p-5">
+                <input
+                  readOnly
+                  value={publicUrl}
+                  aria-label="Client link"
+                  onFocus={(e) => e.currentTarget.select()}
+                  className="h-10 min-w-0 flex-1 truncate rounded-lg border border-input bg-muted/50 px-3 font-mono text-xs text-muted-foreground"
+                />
+                <Button variant="outline" size="icon" onClick={copyLink} aria-label="Copy client link">
+                  <Copy aria-hidden />
+                </Button>
+              </div>
+            </Card>
+          )}
 
-          {/* Key dates + total */}
-          <div className="grid grid-cols-3 gap-4 text-sm pt-1">
-            <div>
-              <p className="text-xs text-muted-foreground mb-0.5">Issue Date</p>
-              <p className="text-foreground font-medium">
-                {new Date(invoice.issueDate).toLocaleDateString()}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground mb-0.5">Due Date</p>
-              <p className="text-foreground font-medium">
-                {new Date(invoice.dueDate).toLocaleDateString()}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground mb-0.5">Total</p>
-              <p className="text-2xl font-bold text-foreground">
-                {formatCurrency(invoice.total)}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Line items ──────────────────────────────────────────────────────── */}
-        <div className="rounded-xl border border-border bg-card overflow-hidden">
-          <div className="px-5 py-3 border-b border-border">
-            <h2 className="text-sm font-semibold text-foreground">
-              Line Items
-            </h2>
-          </div>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border">
-                {["Description", "Qty", "Unit Price", "Tax", "Total"].map(
-                  (h) => (
-                    <th
-                      key={h}
-                      className="px-5 py-2.5 text-left text-xs font-medium text-muted-foreground"
-                    >
-                      {h}
-                    </th>
-                  )
-                )}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {invoice.lineItems.map((item, idx) => (
-                <tr key={item.id ?? idx}>
-                  <td className="px-5 py-3 text-foreground">
-                    {item.description}
-                  </td>
-                  <td className="px-5 py-3 text-muted-foreground">
-                    {item.quantity}
-                  </td>
-                  <td className="px-5 py-3 text-muted-foreground">
-                    {formatCurrency(item.unitPrice)}
-                  </td>
-                  <td className="px-5 py-3 text-muted-foreground">
-                    {item.taxPercent}%
-                  </td>
-                  <td className="px-5 py-3 font-semibold text-foreground">
-                    {formatCurrency(item.lineTotal)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot className="border-t-2 border-border">
-              <tr>
-                <td colSpan={3} />
-                <td className="px-5 py-3 text-sm text-muted-foreground">
-                  Subtotal
-                </td>
-                <td className="px-5 py-3 font-medium text-foreground">
-                  {formatCurrency(invoice.subtotal)}
-                </td>
-              </tr>
-              <tr>
-                <td colSpan={3} />
-                <td className="px-5 py-3 text-sm text-muted-foreground">
-                  Tax
-                </td>
-                <td className="px-5 py-3 font-medium text-foreground">
-                  {formatCurrency(invoice.taxTotal)}
-                </td>
-              </tr>
-              <tr>
-                <td colSpan={3} />
-                <td className="px-5 py-3 text-sm font-semibold text-foreground">
-                  Total
-                </td>
-                <td className="px-5 py-3 text-lg font-bold text-foreground">
-                  {formatCurrency(invoice.total)}
-                </td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-
-        {/* Follow-up history ───────────────────────────────────────────────── */}
-        {canFollowUp && (
-          <div className="rounded-xl border border-border bg-card overflow-hidden">
-            <div className="px-5 py-3 border-b border-border flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-foreground">
-                Follow-up History
-              </h2>
-              <span className="text-xs text-muted-foreground">
-                {followUps.length} sent
-              </span>
-            </div>
+          <Card>
+            <CardHeader title="Activity" />
             <div className="p-5">
-              <FollowUpPanel
-                followUps={followUps}
-                isLoading={followUpsLoading}
-              />
+              <StatusTimeline invoice={invoice} />
             </div>
-          </div>
-        )}
+          </Card>
 
-        {/* Notes & Terms ───────────────────────────────────────────────────── */}
-        {(invoice.notes || invoice.terms) && (
-          <div className="grid grid-cols-2 gap-4">
-            {invoice.notes && (
-              <div className="rounded-xl border border-border bg-card p-5">
-                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                  Notes
-                </h3>
-                <p className="text-sm text-foreground whitespace-pre-wrap">
-                  {invoice.notes}
-                </p>
+          {invoice.status !== "DRAFT" && (
+            <Card>
+              <CardHeader title="Reminders" />
+              <div className="p-5">
+                <FollowUpPanel followUps={followUps} isLoading={followUpsLoading} />
               </div>
-            )}
-            {invoice.terms && (
-              <div className="rounded-xl border border-border bg-card p-5">
-                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                  Terms
-                </h3>
-                <p className="text-sm text-foreground whitespace-pre-wrap">
-                  {invoice.terms}
-                </p>
-              </div>
-            )}
-          </div>
-        )}
+            </Card>
+          )}
+        </div>
       </div>
-    </>
+
+      <AiSuggestionModal
+        invoiceId={id}
+        clientEmail={client.email ?? undefined}
+        defaultTone={user?.aiTone === "FORMAL" ? "FORMAL" : user?.aiTone === "PROFESSIONAL" ? "PROFESSIONAL" : "FRIENDLY"}
+        open={aiOpen}
+        onOpenChange={setAiOpen}
+        onSent={refetchFollowUps}
+      />
+
+      <ConfirmDialog
+        open={confirm === "send"}
+        title={`Send ${invoice.number}?`}
+        description={`${client.name} will get an email at ${client.email ?? "their address"} with a link to view and download it. Sent invoices can't be edited.`}
+        confirmLabel="Send invoice"
+        isLoading={busy}
+        onConfirm={() => run(() => invoiceApi.send(id), `Invoice ${invoice.number} sent`)}
+        onCancel={() => setConfirm(null)}
+      />
+      <ConfirmDialog
+        open={confirm === "paid"}
+        title="Mark as paid?"
+        description={`Records ${formatCurrency(invoice.total, invoice.currency)} as received today.`}
+        confirmLabel="Mark as paid"
+        isLoading={busy}
+        onConfirm={() => run(() => invoiceApi.markPaid(id), "Marked as paid — nice!")}
+        onCancel={() => setConfirm(null)}
+      />
+      <ConfirmDialog
+        open={confirm === "void"}
+        title={`Void ${invoice.number}?`}
+        description="The invoice stays in your records but is no longer payable. This can't be undone."
+        confirmLabel="Void invoice"
+        destructive
+        isLoading={busy}
+        onConfirm={() => run(() => invoiceApi.void(id), `Invoice ${invoice.number} voided`)}
+        onCancel={() => setConfirm(null)}
+      />
+      <ConfirmDialog
+        open={confirm === "delete"}
+        title="Delete this draft?"
+        description="This permanently removes the draft. This can't be undone."
+        confirmLabel="Delete draft"
+        destructive
+        isLoading={busy}
+        onConfirm={handleDelete}
+        onCancel={() => setConfirm(null)}
+      />
+    </Page>
   );
 }

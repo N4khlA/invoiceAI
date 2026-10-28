@@ -1,161 +1,140 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useClients, clientApi } from "@/hooks/useClients";
-import { Plus, Search, Users, ChevronRight, Trash2 } from "lucide-react";
+import { Archive, ChevronRight, Plus, SearchX, Users } from "lucide-react";
+import { useClients } from "@/hooks/useClients";
+import { useDebounce } from "@/hooks/useDebounce";
 import { cn } from "@/lib/formatters";
+import { Button, Card, EmptyState, ErrorState, Page, PageHeader, Pagination, SearchInput, Skeleton } from "@/components/ui";
+
+const PAGE_SIZE = 20;
+
+function Avatar({ name }: { name: string }) {
+  const initials = name
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((w) => w[0])
+    .join("")
+    .toUpperCase();
+  return (
+    <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary/10 font-display text-sm font-bold text-primary" aria-hidden>
+      {initials || "?"}
+    </span>
+  );
+}
 
 export default function ClientsPage() {
   const [search, setSearch] = useState("");
+  const [archived, setArchived] = useState(false);
   const [page, setPage] = useState(1);
-  const [isDeleting, setIsDeleting] = useState(false);
+  const debounced = useDebounce(search.trim());
+
+  useEffect(() => setPage(1), [debounced, archived]);
+
   const { clients, total, totalPages, isLoading, error, refetch } = useClients({
-    search: search || undefined,
+    search: debounced || undefined,
+    archived,
     page,
-    pageSize: 20,
+    limit: PAGE_SIZE,
   });
 
-  const handleDelete = async (id: string, name: string) => {
-    if (!confirm(`Delete client "${name}"? This will not delete their invoices.`)) return;
-    setIsDeleting(true);
-    try {
-      const { api } = await import("@/lib/api");
-      await api.delete(`/clients/${id}`);
-      refetch();
-    } catch {
-      alert("Failed to delete client.");
-    } finally {
-      setIsDeleting(false);
-    }
-  };
-
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-5">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Clients</h1>
-          <p className="text-sm text-muted-foreground">{total} total clients</p>
+    <Page>
+      <PageHeader
+        title="Clients"
+        description={isLoading ? "Loading…" : `${total} ${archived ? "archived" : "active"}`}
+        actions={
+          <Button asChild>
+            <Link href="/clients/new">
+              <Plus aria-hidden />
+              New client
+            </Link>
+          </Button>
+        }
+      />
+
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div role="tablist" aria-label="Client list" className="inline-flex rounded-lg border border-border bg-muted/60 p-0.5">
+          {[
+            { value: false, label: "Active" },
+            { value: true, label: "Archived" },
+          ].map((t) => (
+            <button
+              key={t.label}
+              role="tab"
+              aria-selected={archived === t.value}
+              onClick={() => setArchived(t.value)}
+              className={cn(
+                "h-8 cursor-pointer rounded-md px-4 text-sm font-medium transition-colors",
+                archived === t.value ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {t.label}
+            </button>
+          ))}
         </div>
-        <Link
-          href="/clients/new"
-          className={cn(
-            "flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5",
-            "text-sm font-semibold text-primary-foreground hover:bg-indigo-500 transition-colors"
-          )}
-        >
-          <Plus className="h-4 w-4" />
-          Add Client
-        </Link>
+        <SearchInput value={search} onChange={setSearch} placeholder="Search name, email or company" label="Search clients" className="sm:w-80" />
       </div>
 
-      {/* Search */}
-      <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <input
-          type="text"
-          placeholder="Search clients…"
-          value={search}
-          onChange={(e) => {
-            setSearch(e.target.value);
-            setPage(1);
-          }}
-          className="w-full rounded-lg border border-border bg-card pl-9 pr-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary"
-        />
-      </div>
-
-      {/* List */}
-      <div className="rounded-xl border border-border bg-card overflow-hidden">
-        {isLoading ? (
+      <Card className="overflow-hidden">
+        {error ? (
+          <ErrorState message={error} onRetry={refetch} />
+        ) : isLoading ? (
           <div className="divide-y divide-border">
-            {[...Array(6)].map((_, i) => (
-              <div key={i} className="px-5 py-4 h-16 animate-pulse bg-muted/10" />
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-3 px-5 py-4">
+                <Skeleton className="size-10 rounded-full" />
+                <div className="flex-1 space-y-2">
+                  <Skeleton className="h-4 w-40" />
+                  <Skeleton className="h-3 w-56" />
+                </div>
+              </div>
             ))}
           </div>
-        ) : error ? (
-          <div className="flex items-center justify-center py-20">
-            <p className="text-sm text-destructive">{error}</p>
-          </div>
         ) : clients.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-center px-6">
-            <Users className="h-10 w-10 text-muted-foreground mb-3" />
-            <p className="text-sm font-medium text-foreground mb-1">No clients yet</p>
-            {!search && (
-              <Link href="/clients/new" className="text-sm text-primary hover:underline">
-                Add your first client →
-              </Link>
-            )}
-          </div>
+          debounced ? (
+            <EmptyState icon={SearchX} title="No matching clients" description={`Nothing matches “${debounced}”.`} />
+          ) : archived ? (
+            <EmptyState icon={Archive} title="No archived clients" description="Archived clients are hidden from new invoices but keep their history." />
+          ) : (
+            <EmptyState
+              icon={Users}
+              title="Add your first client"
+              description="Save the people you bill once, then invoice them in a couple of clicks."
+              action={
+                <Button asChild>
+                  <Link href="/clients/new">
+                    <Plus aria-hidden />
+                    New client
+                  </Link>
+                </Button>
+              }
+            />
+          )
         ) : (
           <>
             <ul className="divide-y divide-border">
-              {clients.map((client) => (
-                <li key={client.id}>
-                  <div className="flex items-center gap-4 px-5 py-4 hover:bg-accent transition-colors group">
-                    {/* Avatar */}
-                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/15 text-sm font-bold text-primary uppercase shrink-0">
-                      {client.name[0]}
-                    </div>
-                    {/* Info */}
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-foreground truncate">{client.name}</p>
-                      <p className="text-xs text-muted-foreground truncate">{client.email}</p>
-                    </div>
-                    {/* Invoice count */}
-                    <div className="text-right shrink-0 hidden sm:block">
-                      <p className="text-xs text-muted-foreground">
-                        {client.outstanding > 0 ? `$${client.outstanding.toFixed(0)} outstanding` : "No outstanding"}
+              {clients.map((c) => (
+                <li key={c.id}>
+                  <Link href={`/clients/${c.id}`} className="group flex items-center gap-3 px-4 py-3.5 transition-colors hover:bg-muted/50 sm:px-5">
+                    <Avatar name={c.name} />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-medium text-foreground">{c.name}</p>
+                      <p className="truncate text-sm text-muted-foreground">
+                        {c.company && c.company !== c.name ? `${c.company} · ` : ""}
+                        {c.email}
                       </p>
                     </div>
-                    {/* Actions */}
-                    <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button
-                        onClick={() => handleDelete(client.id, client.name)}
-                        disabled={isDeleting}
-                        className="text-muted-foreground hover:text-destructive transition-colors"
-                        title="Delete client"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                      <Link
-                        href={`/clients/${client.id}`}
-                        className="text-muted-foreground hover:text-primary transition-colors"
-                      >
-                        <ChevronRight className="h-4 w-4" />
-                      </Link>
-                    </div>
-                  </div>
+                    <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" aria-hidden />
+                  </Link>
                 </li>
               ))}
             </ul>
-            {/* Pagination */}
-            {totalPages > 1 && (
-              <div className="flex items-center justify-between px-5 py-3 border-t border-border">
-                <p className="text-xs text-muted-foreground">
-                  Page {page} of {totalPages}
-                </p>
-                <div className="flex gap-2">
-                  <button
-                    disabled={page <= 1}
-                    onClick={() => setPage((p) => p - 1)}
-                    className="text-xs text-primary hover:underline disabled:opacity-40"
-                  >
-                    Previous
-                  </button>
-                  <button
-                    disabled={page >= totalPages}
-                    onClick={() => setPage((p) => p + 1)}
-                    className="text-xs text-primary hover:underline disabled:opacity-40"
-                  >
-                    Next
-                  </button>
-                </div>
-              </div>
-            )}
+            <Pagination page={page} totalPages={totalPages} total={total} pageSize={PAGE_SIZE} onPageChange={setPage} />
           </>
         )}
-      </div>
-    </div>
+      </Card>
+    </Page>
   );
 }

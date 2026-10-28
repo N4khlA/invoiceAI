@@ -2,76 +2,92 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ─── CSS Variables ────────────────────────────────────────────────────────── */
+/* ─── Design tokens (see design-system/invoiceai/MASTER.md) ───────────────── */
 @layer base {
   :root {
-    /* Light mode */
-    --background: 220 20% 97%;
-    --foreground: 224 71% 4%;
+    --background: 210 40% 98%;          /* slate-50  #F8FAFC */
+    --foreground: 217 33% 17%;          /* slate-800 #1E293B */
     --card: 0 0% 100%;
-    --card-foreground: 224 71% 4%;
+    --card-foreground: 217 33% 17%;
     --popover: 0 0% 100%;
-    --popover-foreground: 224 71% 4%;
-    --primary: 239 84% 67%;
+    --popover-foreground: 217 33% 17%;
+    --primary: 243 75% 59%;             /* indigo-600 #4F46E5 */
     --primary-foreground: 0 0% 100%;
-    --secondary: 220 14% 96%;
-    --secondary-foreground: 220 9% 20%;
-    --muted: 220 14% 96%;
-    --muted-foreground: 220 9% 46%;
-    --accent: 220 14% 96%;
-    --accent-foreground: 220 9% 20%;
-    --destructive: 0 84% 60%;
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 217 33% 17%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 19% 35%;    /* slate-600 #475569 — 7:1 on white */
+    --accent: 226 100% 97%;             /* indigo-50 tint for hovers */
+    --accent-foreground: 243 75% 45%;
+    --destructive: 0 72% 51%;           /* red-600 */
     --destructive-foreground: 0 0% 100%;
-    --border: 220 13% 91%;
-    --input: 220 13% 91%;
-    --ring: 239 84% 67%;
+    --success: 161 94% 30%;             /* emerald-600 */
+    --warning: 32 95% 44%;              /* amber-600 */
+    --border: 214 32% 91%;              /* slate-200 */
+    --input: 214 32% 91%;
+    --ring: 243 75% 59%;
     --radius: 0.625rem;
   }
 
   .dark {
-    /* Dark mode — deep navy */
-    --background: 224 71% 4%;       /* #0F1117 */
+    --background: 222 32% 6%;           /* #0B0E14 */
     --foreground: 210 40% 98%;
-    --card: 224 49% 8%;             /* slightly lighter than bg */
+    --card: 222 26% 10%;                /* #12161F */
     --card-foreground: 210 40% 98%;
-    --popover: 224 49% 8%;
+    --popover: 222 26% 11%;
     --popover-foreground: 210 40% 98%;
-    --primary: 239 84% 67%;         /* #6366F1 indigo */
+    --primary: 239 84% 67%;             /* indigo-500 #6366F1 */
     --primary-foreground: 0 0% 100%;
-    --secondary: 224 35% 13%;
+    --secondary: 222 22% 15%;
     --secondary-foreground: 210 40% 98%;
-    --muted: 224 35% 13%;
-    --muted-foreground: 215 20% 55%;
-    --accent: 224 35% 13%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 63% 55%;
+    --muted: 222 22% 15%;
+    --muted-foreground: 215 20% 68%;    /* slate-400 — 7:1 on card */
+    --accent: 239 40% 18%;
+    --accent-foreground: 230 94% 82%;
+    --destructive: 0 84% 63%;
     --destructive-foreground: 0 0% 100%;
-    --border: 224 35% 16%;
-    --input: 224 35% 16%;
+    --success: 158 64% 52%;
+    --warning: 38 92% 56%;
+    --border: 222 20% 18%;              /* #222837 */
+    --input: 222 20% 20%;
     --ring: 239 84% 67%;
   }
 }
 
-/* ─── Base Styles ──────────────────────────────────────────────────────────── */
+/* ─── Base ─────────────────────────────────────────────────────────────────── */
 @layer base {
   * {
     @apply border-border;
   }
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
   body {
     @apply bg-background text-foreground antialiased;
     font-feature-settings: "cv11", "ss01";
-    font-variation-settings: "opsz" 32;
   }
-
+  h1, h2, h3, h4 {
+    @apply font-display tracking-tight;
+  }
   ::selection {
     @apply bg-primary/20 text-foreground;
+  }
+  /* Visible keyboard focus everywhere, never on mouse click */
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+}
+
+@layer utilities {
+  .tabular {
+    font-variant-numeric: tabular-nums;
   }
 }
 
 /* ─── Scrollbar ────────────────────────────────────────────────────────────── */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 ::-webkit-scrollbar-track {
   @apply bg-transparent;
@@ -89,39 +105,34 @@
 }
 .skeleton::after {
   content: "";
-  @apply absolute inset-0 bg-shimmer bg-[length:200%_100%] animate-shimmer;
+  @apply absolute inset-0 animate-shimmer bg-[length:200%_100%];
+  background-image: linear-gradient(90deg, transparent 0%, hsl(var(--foreground) / 0.06) 50%, transparent 100%);
 }
 
-/* ─── Status Badge Colors ──────────────────────────────────────────────────── */
-.badge-draft   { @apply bg-gray-500/15 text-gray-400 border border-gray-500/30; }
-.badge-sent    { @apply bg-blue-500/15 text-blue-400 border border-blue-500/30; }
-.badge-viewed  { @apply bg-purple-500/15 text-purple-400 border border-purple-500/30; }
-.badge-paid    { @apply bg-emerald-500/15 text-emerald-400 border border-emerald-500/30; }
-.badge-overdue { @apply bg-red-500/15 text-red-400 border border-red-500/30; }
-.badge-void    { @apply bg-slate-500/15 text-slate-400 border border-slate-500/30; }
-
-/* ─── Sidebar nav item ─────────────────────────────────────────────────────── */
-.nav-item {
-  @apply flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium
-    text-muted-foreground transition-all duration-150
-    hover:bg-accent hover:text-foreground;
-}
-.nav-item.active {
-  @apply bg-primary/10 text-primary;
+/* ─── Printable invoice paper (always light, like real paper) ─────────────── */
+.invoice-paper {
+  @apply rounded-xl border border-slate-200 bg-white text-slate-900 shadow-sm;
 }
 
-/* ─── Card hover lift ──────────────────────────────────────────────────────── */
-.card-lift {
-  @apply transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5;
+@media print {
+  body {
+    background: white !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .invoice-paper {
+    border: none !important;
+    box-shadow: none !important;
+  }
 }
 
-/* ─── Invoice preview ──────────────────────────────────────────────────────── */
-.invoice-preview {
-  @apply bg-white text-gray-900 rounded-xl shadow-2xl;
-  font-family: var(--font-inter), system-ui, sans-serif;
-}
-
-/* ─── Glass card ───────────────────────────────────────────────────────────── */
-.glass-card {
-  @apply rounded-xl border border-border/50 bg-card/80 backdrop-blur-sm;
+/* ─── Reduced motion ───────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
