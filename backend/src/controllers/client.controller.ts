@@ -24,7 +24,10 @@ const createSchema = z.object({
   notes: z.string().optional(),
 });
 
-const updateSchema = createSchema.partial();
+const updateSchema = createSchema.partial().extend({
+  // Archive/unarchive is a PATCH { isArchived } — no dedicated route
+  isArchived: z.boolean().optional(),
+});
 
 const listQuerySchema = z.object({
   page: z.coerce.number().int().positive().default(1),

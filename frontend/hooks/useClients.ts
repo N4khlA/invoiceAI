@@ -3,10 +3,10 @@ import { api, extractError } from "@/lib/api";
 import { Client, CreateClientRequest, PaginatedResponse } from "@/types";
 
 interface UseClientsOptions {
-  includeArchived?: boolean;
+  archived?: boolean;
   search?: string;
   page?: number;
-  pageSize?: number;
+  limit?: number;
 }
 
 interface UseClientsReturn {
@@ -19,7 +19,7 @@ interface UseClientsReturn {
 }
 
 export function useClients(options: UseClientsOptions = {}): UseClientsReturn {
-  const { includeArchived = false, search, page = 1, pageSize = 20 } = options;
+  const { archived = false, search, page = 1, limit = 20 } = options;
   const [clients, setClients] = useState<Client[]>([]);
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
@@ -31,10 +31,10 @@ export function useClients(options: UseClientsOptions = {}): UseClientsReturn {
     setError(null);
     try {
       const params = new URLSearchParams();
-      if (includeArchived) params.set("includeArchived", "true");
+      if (archived) params.set("archived", "true");
       if (search) params.set("search", search);
       params.set("page", String(page));
-      params.set("pageSize", String(pageSize));
+      params.set("limit", String(limit));
 
       const { data } = await api.get<PaginatedResponse<Client>>(
         `/clients?${params.toString()}`
@@ -47,7 +47,7 @@ export function useClients(options: UseClientsOptions = {}): UseClientsReturn {
     } finally {
       setIsLoading(false);
     }
-  }, [includeArchived, search, page, pageSize]);
+  }, [archived, search, page, limit]);
 
   useEffect(() => {
     void fetch();
@@ -72,8 +72,9 @@ export function useClient(id: string): UseClientReturn {
     setIsLoading(true);
     setError(null);
     try {
-      const { data } = await api.get<{ data: Client }>(`/clients/${id}`);
-      setClient(data.data);
+      // Backend returns the client object directly (includes summary)
+      const { data } = await api.get<Client>(`/clients/${id}`);
+      setClient(data);
     } catch (err) {
       setError(extractError(err));
     } finally {
@@ -90,25 +91,31 @@ export function useClient(id: string): UseClientReturn {
 
 export const clientApi = {
   create: async (payload: CreateClientRequest): Promise<Client> => {
-    const { data } = await api.post<{ data: Client }>("/clients", payload);
-    return data.data;
+    const { data } = await api.post<Client>("/clients", payload);
+    return data;
   },
 
   update: async (
     id: string,
     payload: Partial<CreateClientRequest>
   ): Promise<Client> => {
-    const { data } = await api.patch<{ data: Client }>(`/clients/${id}`, payload);
-    return data.data;
+    const { data } = await api.patch<Client>(`/clients/${id}`, payload);
+    return data;
   },
 
+  // No dedicated archive route on the backend: archive = PATCH isArchived.
+  // (The list endpoint hides archived clients by default via ?archived=false.)
   archive: async (id: string): Promise<Client> => {
-    const { data } = await api.post<{ data: Client }>(`/clients/${id}/archive`);
-    return data.data;
+    const { data } = await api.patch<Client>(`/clients/${id}`, {
+      isArchived: true,
+    });
+    return data;
   },
 
   unarchive: async (id: string): Promise<Client> => {
-    const { data } = await api.post<{ data: Client }>(`/clients/${id}/unarchive`);
-    return data.data;
+    const { data } = await api.patch<Client>(`/clients/${id}`, {
+      isArchived: false,
+    });
+    return data;
   },
 };

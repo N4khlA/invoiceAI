@@ -1,3 +1,7 @@
+// Types mirror the backend API contract exactly (backend = source of truth).
+// Field names follow the Prisma schema: `number`, `items`, `taxAmount`,
+// `taxPct`, `isArchived`, `bizName`, …
+
 // ─── Enums ────────────────────────────────────────────────────────────────────
 
 export type InvoiceStatus =
@@ -10,40 +14,43 @@ export type InvoiceStatus =
 
 export type Plan = "FREE" | "PRO";
 
-export type AiTone = "FORMAL" | "FRIENDLY" | "FIRM";
+export type AiTone = "PROFESSIONAL" | "FRIENDLY" | "FORMAL";
 
-export type Currency = "USD" | "EUR" | "GBP" | "CAD" | "AUD" | "INR" | "JPY";
+export type Currency = "USD" | "EUR" | "GBP" | "BRL" | "CAD" | "AUD" | "INR" | "JPY";
 
-// ─── API Response Wrapper ─────────────────────────────────────────────────────
-
-export interface ApiResponse<T> {
-  data: T;
-  message?: string;
-}
+// ─── Pagination envelope (GET list endpoints) ─────────────────────────────────
 
 export interface PaginatedResponse<T> {
   data: T[];
   total: number;
   page: number;
-  pageSize: number;
+  limit: number;
   totalPages: number;
 }
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
+/**
+ * Shape returned by /auth/register, /auth/login, /auth/refresh and /account.
+ * InvoicesThisMonth/subscription fields are only present on /account reads.
+ */
 export interface AuthUser {
   id: string;
   email: string;
-  businessName: string;
-  businessAddress?: string;
-  businessLogoUrl?: string;
+  name: string;
+  bizName: string;
+  bizAddress?: string;
+  bizPhone?: string;
+  bizWebsite?: string;
+  logoUrl?: string;
   currency: Currency;
   aiTone: AiTone;
   readReceipts: boolean;
   plan: Plan;
-  invoicesThisMonth: number;
-  planExpiresAt?: string;
+  subscriptionStatus?: string | null;
+  invoicesThisMonth?: number;
   createdAt: string;
+  updatedAt?: string;
 }
 
 export interface LoginRequest {
@@ -51,6 +58,7 @@ export interface LoginRequest {
   password: string;
 }
 
+/** Backend register schema accepts `businessName` (mapped to bizName). */
 export interface RegisterRequest {
   email: string;
   password: string;
@@ -68,84 +76,135 @@ export interface Client {
   id: string;
   name: string;
   email: string;
-  address?: string;
-  archived: boolean;
-  totalInvoiced: number;
-  totalPaid: number;
-  outstanding: number;
+  phone?: string | null;
+  address?: string | null;
+  company?: string | null;
+  notes?: string | null;
+  isArchived: boolean;
   createdAt: string;
   updatedAt: string;
+  /** Only present on GET /clients/:id */
+  summary?: {
+    totalInvoiced: number;
+    totalPaid: number;
+    outstanding: number;
+  };
 }
 
 export interface CreateClientRequest {
   name: string;
   email: string;
   address?: string;
+  phone?: string;
+  company?: string;
+  notes?: string;
 }
 
 // ─── Invoice ──────────────────────────────────────────────────────────────────
 
 export interface LineItem {
   id?: string;
+  invoiceId?: string;
   description: string;
   quantity: number;
   unitPrice: number;
-  taxPercent: number;
+  /** Tax percentage for this line, e.g. 20 = 20% */
+  taxPct: number;
+  /** quantity * unitPrice */
   lineTotal: number;
+  /** lineTotal * taxPct / 100 */
+  taxAmount: number;
+  /** lineTotal + taxAmount */
+  amount: number;
+}
+
+/** Client fields embedded on invoice reads */
+export interface InvoiceClient {
+  id: string;
+  name: string;
+  email: string;
+  address?: string | null;
+  phone?: string | null;
+  company?: string | null;
 }
 
 export interface Invoice {
   id: string;
-  invoiceNumber: string;
+  number: string;
   status: InvoiceStatus;
   clientId: string;
-  client: Client;
+  client?: InvoiceClient;
   issueDate: string;
   dueDate: string;
-  notes?: string;
-  terms?: string;
-  lineItems: LineItem[];
+  currency: string;
   subtotal: number;
-  taxTotal: number;
+  taxRate: number;
+  taxAmount: number;
   total: number;
-  snapshotData: InvoiceSnapshot;
+  notes?: string | null;
+  terms?: string | null;
+  snapshotData?: InvoiceSnapshot | null;
   viewToken?: string;
-  viewedAt?: string;
-  paidAt?: string;
-  sentAt?: string;
+  readAt?: string | null;
+  sentAt?: string | null;
+  viewedAt?: string | null;
+  paidAt?: string | null;
+  voidedAt?: string | null;
   createdAt: string;
   updatedAt: string;
+  items: LineItem[];
+  followUps?: FollowUp[];
 }
 
+/** Snapshot of client + business info captured at creation time */
 export interface InvoiceSnapshot {
-  businessName: string;
-  businessAddress?: string;
-  businessLogoUrl?: string;
-  clientName: string;
-  clientEmail: string;
-  clientAddress?: string;
+  client: {
+    name: string;
+    email: string;
+    address?: string | null;
+    phone?: string | null;
+    company?: string | null;
+  };
+  business: {
+    name: string;
+    address?: string | null;
+    phone?: string | null;
+    website?: string | null;
+    email: string;
+    currency: string;
+  };
 }
 
 export interface CreateInvoiceRequest {
   clientId: string;
   dueDate: string;
+  issueDate?: string;
+  currency?: string;
+  lineItems: Array<{
+    description: string;
+    quantity: number;
+    unitPrice: number;
+    taxPct?: number;
+  }>;
   notes?: string;
   terms?: string;
-  lineItems: Omit<LineItem, "id" | "lineTotal">[];
 }
 
 export interface UpdateInvoiceRequest extends Partial<CreateInvoiceRequest> {}
 
 // ─── Follow-up ────────────────────────────────────────────────────────────────
 
+/** Mirrors the FollowUp Prisma model (notes + method, no subject/body). */
 export interface FollowUp {
   id: string;
   invoiceId: string;
-  subject: string;
-  body: string;
   sentAt: string;
+  /** "EMAIL" | "MANUAL" */
+  method: string;
+  notes?: string | null;
 }
 
+/** Response of POST /ai/follow-up */
 export interface AiFollowUpSuggestion {
   subject: string;
   body: string;
@@ -159,13 +218,11 @@ export interface DashboardStats {
   overdueCount: number;
   paidThisMonth: number;
   revenueYtdChange: number;
-  outstandingChange: number;
 }
 
 export interface MonthlyRevenue {
-  month: string; // e.g. "Jan 2024"
-  revenue: number;
-  paid: number;
+  month: string; // e.g. "2026-01"
+  amount: number;
 }
 
 export interface OverdueInvoice {
@@ -186,31 +243,29 @@ export interface DashboardData {
 
 // ─── Billing ─────────────────────────────────────────────────────────────────
 
+/** GET /v1/billing/status */
 export interface BillingStatus {
   plan: Plan;
+  subscriptionStatus?: string | null;
+  stripeSubscriptionId?: string | null;
+  stripePriceId?: string | null;
   invoicesThisMonth: number;
-  invoiceLimit: number;
-  periodEnd?: string;
-  stripeCustomerId?: string;
 }
 
 // ─── Public Invoice View (no-auth read-receipt endpoint) ─────────────────────
 
+/** Response of GET /v1/invoices/view/:token — whitelist only, no ids. */
 export interface PublicInvoiceView {
-  id: string;
-  invoiceNumber: string;
+  number: string;
   status: InvoiceStatus;
   issueDate: string;
   dueDate: string;
-  currency: Currency;
+  currency: string;
   subtotal: number;
-  taxTotal: number;
+  taxAmount: number;
   total: number;
-  notes?: string;
-  terms?: string;
-  viewedAt?: string;
-  lineItems: LineItem[];
+  notes?: string | null;
+  terms?: string | null;
   snapshotData: InvoiceSnapshot;
-  pdfUrl?: string;
+  items: LineItem[];
 }
-
