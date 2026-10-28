@@ -1,106 +1,85 @@
 // src/services/email.service.ts
-// Transactional email delivery via Resend SDK.
+// HTML templates for transactional email. Delivery goes through lib/mailer.
 
-import { Resend } from "resend";
-import { env } from "../config/env";
-import { AppError } from "../lib/errors";
+const FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif";
 
-// Lazily initialised so tests can mock the env before import.
-let _resend: Resend | null = null;
-function getResend(): Resend {
-  if (!_resend) {
-    _resend = new Resend(env.RESEND_API_KEY);
-  }
-  return _resend;
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
-// ── sendInvoiceEmail ──────────────────────────────────────────────────────────
-
-/**
- * Send an invoice email with an attached PDF.
- *
- * @param to            Recipient email address.
- * @param subject       Email subject line.
- * @param htmlBody      Full HTML email body.
- * @param pdfBuffer     PDF bytes to attach.
- * @param invoiceNumber Invoice number used as the attachment filename.
- */
-export async function sendInvoiceEmail(
-  to: string,
-  subject: string,
-  htmlBody: string,
-  pdfBuffer: Buffer,
-  invoiceNumber: string,
-): Promise<void> {
-  const resend = getResend();
-
-  const { error } = await resend.emails.send({
-    from: env.EMAIL_FROM,
-    to,
-    subject,
-    html: htmlBody,
-    attachments: [
-      {
-        filename: `invoice-${invoiceNumber}.pdf`,
-        content: pdfBuffer,
-      },
-    ],
-  });
-
-  if (error) {
-    throw AppError.internal(
-      `Failed to send invoice email: ${error.message ?? "Unknown Resend error"}`,
-    );
-  }
-}
-
-// ── sendPasswordResetEmail ────────────────────────────────────────────────────
-
-/**
- * Send a password-reset email with a magic link.
- *
- * @param to        Recipient email address.
- * @param resetLink Full URL the user should visit to reset their password.
- */
-export async function sendPasswordResetEmail(
-  to: string,
-  resetLink: string,
-): Promise<void> {
-  const resend = getResend();
-
-  const html = `<!DOCTYPE html>
+function layout(title: string, inner: string): string {
+  return `<!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#f9fafb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
-  <div style="max-width:560px;margin:48px auto;background:#ffffff;border-radius:12px;padding:40px;box-shadow:0 1px 3px rgba(0,0,0,0.08)">
-    <h2 style="font-size:22px;font-weight:700;color:#111827;margin:0 0 8px">Reset your password</h2>
-    <p style="font-size:14px;color:#6b7280;line-height:1.6;margin:0 0 28px">
-      We received a request to reset the password for your InvoiceAI account.
-      Click the button below — this link expires in 1 hour.
-    </p>
-    <a href="${resetLink}"
-       style="display:inline-block;background:#4f46e5;color:#ffffff;font-size:14px;font-weight:600;
-              text-decoration:none;padding:12px 28px;border-radius:8px;letter-spacing:0.01em">
-      Reset Password
-    </a>
-    <p style="font-size:12px;color:#9ca3af;margin:28px 0 0;line-height:1.5">
-      If you did not request this, you can safely ignore this email.<br>
-      For security, this link only works once and expires after 1 hour.
-    </p>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title></head>
+<body style="margin:0;padding:0;background:#f8fafc;font-family:${FONT}">
+  <div style="max-width:560px;margin:40px auto;background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;padding:40px">
+    ${inner}
   </div>
+  <p style="text-align:center;font-size:12px;color:#94a3b8;margin:0 0 40px">Sent with InvoiceAI</p>
 </body>
 </html>`;
+}
 
-  const { error } = await resend.emails.send({
-    from: env.EMAIL_FROM,
-    to,
-    subject: "Reset your InvoiceAI password",
-    html,
-  });
+function button(href: string, label: string): string {
+  return `<a href="${href}" style="display:inline-block;background:#4f46e5;color:#ffffff;font-size:14px;font-weight:600;text-decoration:none;padding:12px 28px;border-radius:8px">${escapeHtml(label)}</a>`;
+}
 
-  if (error) {
-    throw AppError.internal(
-      `Failed to send password-reset email: ${error.message ?? "Unknown Resend error"}`,
-    );
+export function formatMoney(amount: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(amount);
+  } catch {
+    return `${currency} ${amount.toFixed(2)}`;
   }
+}
+
+export function invoiceEmailHtml(opts: {
+  number: string;
+  bizName: string;
+  clientName: string;
+  total: number;
+  currency: string;
+  dueDate: Date;
+  viewUrl: string;
+}): string {
+  const due = opts.dueDate.toLocaleDateString("en-US", { dateStyle: "long" });
+  return layout(
+    `Invoice ${opts.number}`,
+    `<p style="font-size:13px;color:#64748b;margin:0 0 4px">Invoice ${escapeHtml(opts.number)}</p>
+    <h1 style="font-size:28px;font-weight:700;color:#0f172a;margin:0 0 24px">${formatMoney(opts.total, opts.currency)}</h1>
+    <p style="font-size:15px;color:#334155;line-height:1.6;margin:0 0 8px">Hi ${escapeHtml(opts.clientName)},</p>
+    <p style="font-size:15px;color:#334155;line-height:1.6;margin:0 0 28px">
+      <strong>${escapeHtml(opts.bizName)}</strong> sent you an invoice due on <strong>${due}</strong>.
+    </p>
+    ${button(opts.viewUrl, "View invoice")}
+    <p style="font-size:12px;color:#94a3b8;margin:28px 0 0;line-height:1.5">
+      Button not working? Paste this link into your browser:<br>${opts.viewUrl}
+    </p>`,
+  );
+}
+
+export function followUpEmailHtml(opts: { body: string; viewUrl: string }): string {
+  const paragraphs = escapeHtml(opts.body)
+    .split(/\n{2,}/)
+    .map((p) => `<p style="font-size:15px;color:#334155;line-height:1.6;margin:0 0 16px">${p.replace(/\n/g, "<br>")}</p>`)
+    .join("");
+  return layout("Invoice reminder", `${paragraphs}<div style="margin-top:12px">${button(opts.viewUrl, "View invoice")}</div>`);
+}
+
+export function passwordResetEmailHtml(resetLink: string): string {
+  return layout(
+    "Reset your password",
+    `<h2 style="font-size:22px;font-weight:700;color:#0f172a;margin:0 0 8px">Reset your password</h2>
+    <p style="font-size:14px;color:#64748b;line-height:1.6;margin:0 0 28px">
+      We received a request to reset the password for your InvoiceAI account.
+      This link expires in 15 minutes.
+    </p>
+    ${button(resetLink, "Reset password")}
+    <p style="font-size:12px;color:#94a3b8;margin:28px 0 0;line-height:1.5">
+      If you did not request this, you can safely ignore this email.
+    </p>`,
+  );
 }

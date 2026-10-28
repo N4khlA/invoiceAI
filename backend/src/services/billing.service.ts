@@ -1,16 +1,22 @@
 // src/services/billing.service.ts
 // Stripe checkout, portal, and webhook handling.
 // All user data is updated only after verifying the Stripe webhook signature.
+// Without Stripe keys (demo mode) checkout upgrades instantly and the portal
+// is simulated, so the billing flow can be demoed end to end.
 
 import Stripe from "stripe";
 import { Plan } from "@prisma/client";
 import prisma from "../lib/prisma";
 import { AppError } from "../lib/errors";
-import { env } from "../config/env";
+import { env, features } from "../config/env";
 
-const stripe = new Stripe(env.STRIPE_SECRET_KEY, {
-  apiVersion: "2026-02-25.clover",
-});
+let _stripe: Stripe | null = null;
+function getStripe(): Stripe {
+  if (!_stripe) {
+    _stripe = new Stripe(env.STRIPE_SECRET_KEY ?? "", { apiVersion: "2026-02-25.clover" });
+  }
+  return _stripe;
+}
 
 // ── Plan helpers ─────────────────────────────────────────────────────────────
 
@@ -31,6 +37,16 @@ export async function createCheckoutSession(userId: string): Promise<string> {
   if (user.plan === Plan.PRO) {
     throw AppError.conflict("You are already on the PRO plan.");
   }
+
+  if (!features.billing) {
+    await prisma.user.update({
+      where: { id: userId },
+      data:  { plan: Plan.PRO, subscriptionStatus: "active", invoicesThisMonth: 0 },
+    });
+    return `${env.FRONTEND_URL}/billing?checkout=demo`;
+  }
+
+  const stripe = getStripe();
 
   // Reuse existing Stripe customer or create a new one
   let customerId = user.stripeCustomerId ?? undefined;
@@ -68,11 +84,20 @@ export async function createPortalSession(userId: string): Promise<string> {
   });
   if (!user) throw AppError.notFound("User");
 
+  if (!features.billing) {
+    // Demo "portal": cancelling is the only action, so downgrade directly
+    await prisma.user.update({
+      where: { id: userId },
+      data:  { plan: Plan.FREE, subscriptionStatus: "canceled" },
+    });
+    return `${env.FRONTEND_URL}/billing?portal=demo`;
+  }
+
   if (!user.stripeCustomerId) {
     throw AppError.badRequest("No billing account found. Please subscribe first.");
   }
 
-  const session = await stripe.billingPortal.sessions.create({
+  const session = await getStripe().billingPortal.sessions.create({
     customer:   user.stripeCustomerId,
     return_url: `${env.FRONTEND_URL}/billing`,
   });
@@ -87,6 +112,11 @@ export async function createPortalSession(userId: string): Promise<string> {
  * rawBody MUST be the original Buffer from express.raw().
  */
 export async function handleWebhook(rawBody: Buffer, signature: string): Promise<void> {
+  if (!features.billing || !env.STRIPE_WEBHOOK_SECRET) {
+    throw AppError.serviceUnavailable("Stripe is not configured.");
+  }
+  const stripe = getStripe();
+
   let event: Stripe.Event;
   try {
     event = stripe.webhooks.constructEvent(rawBody, signature, env.STRIPE_WEBHOOK_SECRET);

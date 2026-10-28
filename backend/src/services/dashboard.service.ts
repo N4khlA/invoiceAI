@@ -91,7 +91,7 @@ export async function getDashboardSummary(userId: string) {
       where: { userId },
       orderBy: { createdAt: "desc" },
       take: 5,
-      include: { client: { select: { name: true } } },
+      include: { client: { select: { id: true, name: true, email: true } } },
     }),
 
     // All OVERDUE invoices with client name for the overdue list

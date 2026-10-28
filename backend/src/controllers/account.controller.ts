@@ -41,9 +41,14 @@ const SAFE_USER_SELECT = {
 // ── Validation schemas ────────────────────────────────────────────────────────
 
 const updateAccountSchema = z.object({
+  name:               z.string().max(120).optional(),
   bizName:            z.string().min(1).max(120).optional(),
-  logoUrl:            z.string().url("Invalid logo URL").optional(),
+  // "" clears the logo
+  logoUrl:            z.union([z.string().url("Invalid logo URL"), z.literal("")]).optional()
+                        .transform((v) => (v === "" ? null : v)),
   bizAddress:         z.string().max(300).optional(),
+  bizPhone:           z.string().max(40).optional(),
+  bizWebsite:         z.union([z.string().url("Invalid website URL"), z.literal("")]).optional(),
   currency:           z.string().length(3, "Currency must be a 3-letter ISO code").optional(),
   aiTone:             z.nativeEnum(AiTone).optional(),
   readReceipts:       z.boolean().optional(),

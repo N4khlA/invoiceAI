@@ -5,7 +5,7 @@ import helmet from "helmet";
 import cors from "cors";
 import morgan from "morgan";
 import cookieParser from "cookie-parser";
-import { env } from "./config/env";
+import { env, features } from "./config/env";
 
 // Routes
 import authRoutes     from "./routes/auth.routes";
@@ -53,7 +53,8 @@ export function createApp(): Application {
 
   // ── Health check ──────────────────────────────────────────────
   app.get("/health", (_req: Request, res: Response) => {
-    res.json({ status: "ok", timestamp: new Date().toISOString() });
+    // `features` tells the frontend which integrations run in demo mode
+    res.json({ status: "ok", timestamp: new Date().toISOString(), features });
   });
 
   // ── Public routes (no auth) ───────────────────────────────────

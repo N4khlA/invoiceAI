@@ -14,6 +14,9 @@ import {
   sendInvoice as svcSendInvoice,
   getInvoicePdf as svcGetInvoicePdf,
   markInvoicePaid as svcMarkInvoicePaid,
+  voidInvoice as svcVoidInvoice,
+  getFollowUps as svcGetFollowUps,
+  sendFollowUp as svcSendFollowUp,
   getPublicInvoice as svcGetPublicInvoice,
 } from "../services/invoice.service";
 import { AppError } from "../lib/errors";
@@ -49,10 +52,16 @@ const listQuerySchema = z.object({
   limit: z.coerce.number().int().positive().max(100).default(20),
   status: z.nativeEnum(InvoiceStatus).optional(),
   clientId: z.string().optional(),
+  search: z.string().trim().max(100).optional(),
 });
 
 const markPaidSchema = z.object({
   paidAt: z.coerce.date().optional(),
+});
+
+const followUpSchema = z.object({
+  subject: z.string().trim().min(1, "Subject is required").max(200),
+  body: z.string().trim().min(1, "Body is required").max(5000),
 });
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -166,6 +175,40 @@ export async function markPaid(req: Request, res: Response, next: NextFunction):
     }
     const invoice = await svcMarkInvoicePaid(getParam(req, "id"), userId, body.data.paidAt);
     res.json(invoice);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function voidInvoice(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const userId = getUserId(req);
+    const invoice = await svcVoidInvoice(getParam(req, "id"), userId);
+    res.json(invoice);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function listFollowUps(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const userId = getUserId(req);
+    const followUps = await svcGetFollowUps(getParam(req, "id"), userId);
+    res.json(followUps);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function createFollowUp(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const userId = getUserId(req);
+    const body = followUpSchema.safeParse(req.body);
+    if (!body.success) {
+      return next(AppError.validation("Validation failed", body.error.flatten()));
+    }
+    const followUp = await svcSendFollowUp(getParam(req, "id"), userId, body.data);
+    res.status(201).json(followUp);
   } catch (err) {
     next(err);
   }

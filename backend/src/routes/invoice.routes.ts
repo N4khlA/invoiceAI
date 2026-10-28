@@ -9,6 +9,9 @@ import {
   sendInvoice,
   downloadPdf,
   markPaid,
+  voidInvoice,
+  listFollowUps,
+  createFollowUp,
 } from "../controllers/invoice.controller";
 
 const router = Router();
@@ -24,5 +27,8 @@ router.delete("/:id",        deleteInvoice);
 router.post("/:id/send",     sendInvoice);
 router.get("/:id/pdf",       downloadPdf);
 router.post("/:id/mark-paid", markPaid);
+router.post("/:id/void",      voidInvoice);
+router.get("/:id/followups",  listFollowUps);
+router.post("/:id/followups", createFollowUp);
 
 export default router;

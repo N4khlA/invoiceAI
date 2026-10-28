@@ -3,14 +3,13 @@
 // Every query is scoped to userId — no cross-tenant data leaks.
 
 import crypto from "crypto";
-import { Resend } from "resend";
 import { InvoiceStatus, Prisma, Plan } from "@prisma/client";
 import prisma from "../lib/prisma";
 import { AppError } from "../lib/errors";
 import { env } from "../config/env";
+import { sendMail, MailMessage } from "../lib/mailer";
 import { generateInvoicePdf } from "./pdf.service";
-
-const resend = new Resend(env.RESEND_API_KEY);
+import { invoiceEmailHtml, followUpEmailHtml } from "./email.service";
 
 const FREE_PLAN_MONTHLY_LIMIT = 5;
 
@@ -23,18 +22,28 @@ export interface ListClientsParams {
   page?: number;
   limit?: number;
   archived?: boolean;
+  search?: string;
 }
 
-export async function listClients({ userId, page = 1, limit = 20, archived = false }: ListClientsParams) {
+export async function listClients({ userId, page = 1, limit = 20, archived = false, search }: ListClientsParams) {
+  const where: Prisma.ClientWhereInput = { userId, isArchived: archived };
+  if (search) {
+    where.OR = [
+      { name:    { contains: search, mode: "insensitive" } },
+      { email:   { contains: search, mode: "insensitive" } },
+      { company: { contains: search, mode: "insensitive" } },
+    ];
+  }
+
   const skip = (page - 1) * limit;
   const [data, total] = await Promise.all([
     prisma.client.findMany({
-      where: { userId, isArchived: archived },
+      where,
       skip,
       take: limit,
       orderBy: { createdAt: "desc" },
     }),
-    prisma.client.count({ where: { userId, isArchived: archived } }),
+    prisma.client.count({ where }),
   ]);
   return { data, total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)) };
 }
@@ -127,12 +136,19 @@ export interface ListInvoicesParams {
   limit?: number;
   status?: InvoiceStatus;
   clientId?: string;
+  search?: string;
 }
 
-export async function listInvoices({ userId, page = 1, limit = 20, status, clientId }: ListInvoicesParams) {
+export async function listInvoices({ userId, page = 1, limit = 20, status, clientId, search }: ListInvoicesParams) {
   const where: Prisma.InvoiceWhereInput = { userId };
   if (status) where.status = status;
   if (clientId) where.clientId = clientId;
+  if (search) {
+    where.OR = [
+      { number: { contains: search, mode: "insensitive" } },
+      { client: { name: { contains: search, mode: "insensitive" } } },
+    ];
+  }
 
   const skip = (page - 1) * limit;
   const [data, total] = await Promise.all([
@@ -378,24 +394,25 @@ export async function sendInvoice(id: string, userId: string) {
     // Non-fatal: send email without PDF if generation fails
   }
 
-  // Build email
-  const emailPayload: Parameters<typeof resend.emails.send>[0] = {
-    from: env.EMAIL_FROM,
+  const email: MailMessage = {
     to: invoice.client.email,
     subject: `Invoice ${invoice.number} from ${invoice.user.bizName ?? invoice.user.email}`,
-    html: buildInvoiceEmailHtml({ invoice, viewUrl }),
+    html: invoiceEmailHtml({
+      number: invoice.number,
+      bizName: invoice.user.bizName ?? invoice.user.email,
+      clientName: invoice.client.name,
+      total: invoice.total,
+      currency: invoice.currency,
+      dueDate: invoice.dueDate,
+      viewUrl,
+    }),
   };
 
   if (pdfBuffer) {
-    emailPayload.attachments = [
-      {
-        filename: `invoice-${invoice.number}.pdf`,
-        content: pdfBuffer,
-      },
-    ];
+    email.attachments = [{ filename: `invoice-${invoice.number}.pdf`, content: pdfBuffer }];
   }
 
-  await resend.emails.send(emailPayload);
+  await sendMail(email);
 
   const updated = await prisma.invoice.update({
     where: { id },
@@ -497,40 +514,34 @@ export async function getFollowUps(invoiceId: string, userId: string) {
   });
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// HELPERS
-// ─────────────────────────────────────────────────────────────────────────────
+export interface SendFollowUpInput {
+  subject: string;
+  body: string;
+}
 
-function buildInvoiceEmailHtml({
-  invoice,
-  viewUrl,
-}: {
-  invoice: {
-    number: string;
-    total: number;
-    dueDate: Date;
-    user: { bizName?: string | null; email: string };
-    client: { name: string };
-  };
-  viewUrl: string;
-}): string {
-  const bizName = invoice.user.bizName ?? invoice.user.email;
-  const dueDate = invoice.dueDate.toLocaleDateString("en-US", { dateStyle: "long" });
+/** Email a payment reminder to the client and record it on the invoice. */
+export async function sendFollowUp(invoiceId: string, userId: string, input: SendFollowUpInput) {
+  const invoice = await prisma.invoice.findFirst({
+    where: { id: invoiceId, userId },
+    include: { client: true },
+  });
+  if (!invoice) throw AppError.notFound("Invoice");
 
-  return `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="utf-8"><title>Invoice ${invoice.number}</title></head>
-<body style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:32px">
-  <h1 style="color:#1a1a1a">Invoice ${invoice.number}</h1>
-  <p>Hi ${invoice.client.name},</p>
-  <p><strong>${bizName}</strong> has sent you an invoice for
-    <strong>$${invoice.total.toFixed(2)}</strong> due on <strong>${dueDate}</strong>.</p>
-  <a href="${viewUrl}"
-     style="display:inline-block;margin:24px 0;padding:14px 28px;background:#4f46e5;
-            color:#fff;border-radius:8px;text-decoration:none;font-weight:600">
-    View Invoice
-  </a>
-  <p style="color:#6b7280;font-size:14px">If the button above doesn't work, copy and paste this link:<br>${viewUrl}</p>
-</body>
-</html>`;
+  const allowed: InvoiceStatus[] = [InvoiceStatus.SENT, InvoiceStatus.VIEWED, InvoiceStatus.OVERDUE];
+  if (!allowed.includes(invoice.status)) {
+    throw AppError.validation("Follow-ups can only be sent for SENT, VIEWED or OVERDUE invoices.");
+  }
+
+  await sendMail({
+    to: invoice.client.email,
+    subject: input.subject,
+    html: followUpEmailHtml({
+      body: input.body,
+      viewUrl: `${env.FRONTEND_URL}/invoices/view/${invoice.viewToken}`,
+    }),
+  });
+
+  return prisma.followUp.create({
+    data: { invoiceId, method: "EMAIL", notes: input.subject },
+  });
 }
