@@ -76,20 +76,26 @@ export async function getClient(id: string, userId: string) {
   });
   if (!client) throw AppError.notFound("Client");
 
-  // Aggregate invoice summary for this client
-  const agg = await prisma.invoice.aggregate({
-    where: { clientId: id, userId },
-    _sum: { total: true },
-  });
+  // Aggregate invoice summary for this client. Drafts were never billed and
+  // voided invoices were cancelled, so neither counts as invoiced or owed.
+  const [paidAgg, openAgg] = await Promise.all([
+    prisma.invoice.aggregate({
+      where: { clientId: id, userId, status: InvoiceStatus.PAID },
+      _sum: { total: true },
+    }),
+    prisma.invoice.aggregate({
+      where: {
+        clientId: id,
+        userId,
+        status: { in: [InvoiceStatus.SENT, InvoiceStatus.VIEWED, InvoiceStatus.OVERDUE] },
+      },
+      _sum: { total: true },
+    }),
+  ]);
 
-  const paidAgg = await prisma.invoice.aggregate({
-    where: { clientId: id, userId, status: InvoiceStatus.PAID },
-    _sum: { total: true },
-  });
-
-  const totalInvoiced = agg._sum.total ?? 0;
   const totalPaid = paidAgg._sum.total ?? 0;
-  const outstanding = totalInvoiced - totalPaid;
+  const outstanding = openAgg._sum.total ?? 0;
+  const totalInvoiced = totalPaid + outstanding;
 
   return { ...client, summary: { totalInvoiced, totalPaid, outstanding } };
 }
@@ -473,12 +479,12 @@ export async function getInvoicePdf(id: string, userId: string): Promise<{ pdf: 
 export async function getPublicInvoice(viewToken: string) {
   const invoice = await prisma.invoice.findFirst({
     where: { viewToken },
-    include: { items: true },
+    include: { items: true, user: { select: { readReceipts: true } } },
   });
   if (!invoice) throw AppError.notFound("Invoice");
 
-  // Mark as VIEWED on first open
-  if (invoice.status === InvoiceStatus.SENT) {
+  // Mark as VIEWED on first open (unless the sender turned read receipts off)
+  if (invoice.status === InvoiceStatus.SENT && invoice.user?.readReceipts !== false) {
     await prisma.invoice.update({
       where: { id: invoice.id },
       data: { status: InvoiceStatus.VIEWED, viewedAt: new Date() },

@@ -66,6 +66,8 @@ export interface PdfLineItem {
 
 export interface PdfInvoiceInput {
   number: string;
+  /** Optional so older callers keep working; PAID changes "Amount Due" to "Paid" */
+  status?: string;
   issueDate: Date;
   dueDate: Date;
   currency: string;
@@ -142,7 +144,7 @@ function resolveDisplay(invoice: PdfInvoiceInput): {
     clientName:   sc.name      ?? lr?.name        ?? "Client",
     clientEmail:  sc.email     ?? lr?.email       ?? null,
     clientAddress: sc.address  ?? lr?.address     ?? null,
-    clientCompany: sc.company  ?? lr?.company     ?? null,
+    clientCompany: (sc.company ?? lr?.company ?? null) === (sc.name ?? lr?.name) ? null : (sc.company ?? lr?.company ?? null),
   };
 }
 
@@ -201,7 +203,7 @@ function buildHtml(invoice: PdfInvoiceInput): string {
       </div>
       <div style="text-align:right">
         <p style="font-size:32px;font-weight:800;color:#4f46e5;margin:0 0 4px;letter-spacing:-0.5px">INVOICE</p>
-        <p style="font-size:14px;color:#6b7280;margin:0">#${esc(invoice.number)}</p>
+        <p style="font-size:14px;color:#6b7280;margin:0">${esc(invoice.number)}</p>
       </div>
     </div>
 
@@ -224,7 +226,7 @@ function buildHtml(invoice: PdfInvoiceInput): string {
           </tr>
           <tr>
             <td style="padding:4px 16px 4px 0;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:#6b7280">Due Date</td>
-            <td style="padding:4px 0;font-size:13px;font-weight:600;color:#dc2626">${fmtDate(invoice.dueDate)}</td>
+            <td style="padding:4px 0;font-size:13px;font-weight:600;color:#111827">${fmtDate(invoice.dueDate)}</td>
           </tr>
         </table>
       </div>
@@ -257,8 +259,8 @@ function buildHtml(invoice: PdfInvoiceInput): string {
         </tr>
         <tr><td colspan="2"><hr style="border:none;border-top:2px solid #e5e7eb;margin:4px 0"></td></tr>
         <tr>
-          <td style="padding:10px 16px 10px 0;font-size:16px;font-weight:700;color:#111827">Amount Due</td>
-          <td style="padding:10px 0;font-size:16px;font-weight:700;text-align:right;color:#4f46e5">${fmt(invoice.total, cur)}</td>
+          <td style="padding:10px 16px 10px 0;font-size:16px;font-weight:700;color:#111827">${invoice.status === "PAID" ? "Paid" : "Amount Due"}</td>
+          <td style="padding:10px 0;font-size:16px;font-weight:700;text-align:right;color:${invoice.status === "PAID" ? "#059669" : "#4f46e5"}">${fmt(invoice.total, cur)}</td>
         </tr>
       </table>
     </div>
