@@ -57,7 +57,7 @@ export default function InvoiceDetailPage() {
     return (
       <Page>
         <Skeleton className="mb-8 h-16 w-64" />
-        <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
+        <div className="grid gap-6 xl:grid-cols-[1fr_320px]">
           <Skeleton className="h-[560px] rounded-xl" />
           <Skeleton className="h-[320px] rounded-xl" />
         </div>
@@ -207,7 +207,7 @@ export default function InvoiceDetailPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_320px]">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_320px]">
         <InvoicePaper
           number={invoice.number}
           status={invoice.status}

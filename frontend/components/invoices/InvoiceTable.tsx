@@ -105,7 +105,7 @@ export function InvoiceTable({
                 </p>
               </div>
               <div className="flex shrink-0 flex-col items-end gap-1">
-                <span className="tabular text-sm font-semibold text-foreground">{formatCurrency(inv.total, inv.currency)}</span>
+                <span className={cn("tabular text-sm font-semibold text-foreground", inv.status === "VOID" && "text-muted-foreground line-through")}>{formatCurrency(inv.total, inv.currency)}</span>
                 <StatusBadge status={inv.status} />
               </div>
             </Link>

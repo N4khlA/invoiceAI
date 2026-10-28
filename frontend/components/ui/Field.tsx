@@ -1,4 +1,5 @@
 import { forwardRef, useId, cloneElement, isValidElement } from "react";
+import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/formatters";
 
 const control =
@@ -20,18 +21,12 @@ Textarea.displayName = "Textarea";
 
 export const Select = forwardRef<HTMLSelectElement, React.SelectHTMLAttributes<HTMLSelectElement>>(
   ({ className, children, ...props }, ref) => (
-    <select
-      ref={ref}
-      className={cn(
-        control,
-        "h-10 cursor-pointer appearance-none bg-[length:16px] bg-[right_0.6rem_center] bg-no-repeat pr-9",
-        "bg-[url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%2364748b%22 stroke-width=%222%22><path d=%22m6 9 6 6 6-6%22/></svg>')]",
-        className
-      )}
-      {...props}
-    >
-      {children}
-    </select>
+    <div className="relative">
+      <select ref={ref} className={cn(control, "h-10 cursor-pointer appearance-none pr-9", className)} {...props}>
+        {children}
+      </select>
+      <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+    </div>
   )
 );
 Select.displayName = "Select";
@@ -65,7 +60,7 @@ export function Field({ label, error, hint, optional, className, children }: Fie
     <div className={cn("space-y-1.5", className)}>
       <Label htmlFor={(isValidElement<Record<string, unknown>>(children) && (children.props.id as string)) || id}>
         {label}
-        {optional && <span className="ml-1 font-normal text-muted-foreground">(optional)</span>}
+        {optional && <span className="font-normal text-muted-foreground"> (optional)</span>}
       </Label>
       {child}
       {error ? (

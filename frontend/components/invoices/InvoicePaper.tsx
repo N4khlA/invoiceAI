@@ -50,17 +50,6 @@ export function InvoicePaper(props: InvoicePaperProps) {
 
   return (
     <article className={cn("invoice-paper relative overflow-hidden text-sm", className)} aria-label={`Invoice ${number}`}>
-      {status === "PAID" && (
-        <div className="pointer-events-none absolute right-6 top-6 rotate-6 rounded-md border-2 border-emerald-500 px-3 py-1 font-display text-sm font-bold uppercase tracking-widest text-emerald-600 sm:right-10 sm:top-10">
-          Paid
-        </div>
-      )}
-      {status === "VOID" && (
-        <div className="pointer-events-none absolute right-6 top-6 rotate-6 rounded-md border-2 border-slate-400 px-3 py-1 font-display text-sm font-bold uppercase tracking-widest text-slate-500 sm:right-10 sm:top-10">
-          Void
-        </div>
-      )}
-
       <div className="p-6 sm:p-10">
         <header className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
           <div>
@@ -133,8 +122,20 @@ export function InvoicePaper(props: InvoicePaperProps) {
           ))}
         </ul>
 
-        <div className="mt-6 flex justify-end border-t border-slate-200 pt-5">
-          <dl className="tabular w-full max-w-xs space-y-2">
+        <div className="mt-6 flex flex-col-reverse gap-6 border-t border-slate-200 pt-5 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            {(status === "PAID" || status === "VOID") && (
+              <span
+                className={cn(
+                  "inline-block -rotate-6 rounded-md border-2 px-3 py-1 font-display text-sm font-bold uppercase tracking-widest",
+                  status === "PAID" ? "border-emerald-500 text-emerald-600" : "border-slate-400 text-slate-500"
+                )}
+              >
+                {status === "PAID" ? "Paid" : "Void"}
+              </span>
+            )}
+          </div>
+          <dl className="tabular w-full max-w-xs space-y-2 sm:ml-auto">
             <div className="flex justify-between text-slate-600">
               <dt>Subtotal</dt>
               <dd>{money(subtotal)}</dd>
