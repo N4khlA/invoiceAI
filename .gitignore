@@ -28,3 +28,8 @@ Thumbs.db
 .vercel/
 coverage/
 *.pem
+
+# TypeScript / test artifacts
+*.tsbuildinfo
+test-results/
+playwright-report/
