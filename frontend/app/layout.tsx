@@ -1,10 +1,18 @@
-import type { Metadata } from "next";
-import { Inter, JetBrains_Mono } from "next/font/google";
+import type { Metadata, Viewport } from "next";
+import { Inter, JetBrains_Mono, Plus_Jakarta_Sans } from "next/font/google";
+import { Providers } from "@/components/Providers";
 import "./globals.css";
 
 const inter = Inter({
   variable: "--font-inter",
   subsets: ["latin"],
+  display: "swap",
+});
+
+const jakarta = Plus_Jakarta_Sans({
+  variable: "--font-display",
+  subsets: ["latin"],
+  weight: ["500", "600", "700", "800"],
   display: "swap",
 });
 
@@ -20,18 +28,23 @@ export const metadata: Metadata = {
     template: "%s | InvoiceAI",
   },
   description:
-    "AI-powered invoice management: create, send, and collect payments with smart follow-ups. Built for freelancers and small businesses.",
+    "Create, send and get paid. InvoiceAI tracks every invoice from draft to paid and writes polite follow-ups for you.",
   keywords: ["invoicing", "invoice", "billing", "freelance", "AI", "payments"],
   openGraph: {
     type: "website",
     locale: "en_US",
-    url: "https://invoiceai.app",
     siteName: "InvoiceAI",
     title: "InvoiceAI — Smart Invoicing for Freelancers",
     description:
-      "AI-powered invoice management with smart follow-ups and payment tracking.",
+      "Create, send and get paid. Invoice tracking with AI-written follow-ups.",
   },
-  robots: { index: true, follow: true },
+};
+
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#F8FAFC" },
+    { media: "(prefers-color-scheme: dark)", color: "#0B0E14" },
+  ],
 };
 
 export default function RootLayout({
@@ -42,11 +55,11 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${inter.variable} ${jetbrainsMono.variable} dark`}
+      className={`${inter.variable} ${jakarta.variable} ${jetbrainsMono.variable}`}
       suppressHydrationWarning
     >
       <body className="min-h-screen bg-background font-sans antialiased">
-        {children}
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

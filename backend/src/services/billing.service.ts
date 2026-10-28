@@ -64,8 +64,8 @@ export async function createCheckoutSession(userId: string): Promise<string> {
     payment_method_types: ["card"],
     mode:                 "subscription",
     line_items: [{ price: env.STRIPE_PRO_PRICE_ID, quantity: 1 }],
-    success_url: `${env.FRONTEND_URL}/billing/success?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url:  `${env.FRONTEND_URL}/billing/cancel`,
+    success_url: `${env.FRONTEND_URL}/billing?checkout=success`,
+    cancel_url:  `${env.FRONTEND_URL}/billing?checkout=cancel`,
     metadata:    { userId },
   });
 

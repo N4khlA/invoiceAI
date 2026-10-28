@@ -6,40 +6,53 @@ const LOCALES: Record<Currency, string> = {
   USD: "en-US",
   EUR: "de-DE",
   GBP: "en-GB",
+  BRL: "pt-BR",
   CAD: "en-CA",
   AUD: "en-AU",
   INR: "en-IN",
   JPY: "ja-JP",
 };
 
+export const CURRENCIES = Object.keys(LOCALES) as Currency[];
+
 export function formatCurrency(
   amount: number,
-  currency: Currency = "USD"
+  currency: Currency | string = "USD"
 ): string {
-  return new Intl.NumberFormat(LOCALES[currency], {
-    style: "currency",
-    currency,
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(amount);
+  const locale = LOCALES[currency as Currency] ?? "en-US";
+  try {
+    return new Intl.NumberFormat(locale, {
+      style: "currency",
+      currency,
+      minimumFractionDigits: currency === "JPY" ? 0 : 2,
+      maximumFractionDigits: currency === "JPY" ? 0 : 2,
+    }).format(amount);
+  } catch {
+    return `${currency} ${amount.toFixed(2)}`;
+  }
 }
 
 export function formatCompactCurrency(
   amount: number,
-  currency: Currency = "USD"
+  currency: Currency | string = "USD"
 ): string {
-  if (amount >= 1_000_000) {
-    return `${formatCurrency(amount / 1_000_000, currency).replace(/\.\d+/, "")}M`;
+  const locale = LOCALES[currency as Currency] ?? "en-US";
+  try {
+    return new Intl.NumberFormat(locale, {
+      style: "currency",
+      currency,
+      notation: "compact",
+      maximumFractionDigits: 1,
+    }).format(amount);
+  } catch {
+    return formatCurrency(amount, currency);
   }
-  if (amount >= 1_000) {
-    return `${formatCurrency(amount / 1_000, currency).replace(/\.\d+/, "")}k`;
-  }
-  return formatCurrency(amount, currency);
 }
 
 // ─── Date Formatting ──────────────────────────────────────────────────────────
 
-export function formatDate(dateString: string): string {
+export function formatDate(dateString: string | null | undefined): string {
+  if (!dateString) return "—";
   return new Date(dateString).toLocaleDateString("en-US", {
     day: "2-digit",
     month: "short",
@@ -47,7 +60,24 @@ export function formatDate(dateString: string): string {
   });
 }
 
-export function formatDateFull(dateString: string): string {
+export function formatDateTime(dateString: string | null | undefined): string {
+  if (!dateString) return "—";
+  return new Date(dateString).toLocaleString("en-US", {
+    day: "numeric",
+    month: "short",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+/** yyyy-mm-dd for <input type="date"> */
+export function toDateInput(date: Date): string {
+  const tz = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - tz).toISOString().slice(0, 10);
+}
+
+export function formatDateFull(dateString: string | null | undefined): string {
+  if (!dateString) return "—";
   return new Date(dateString).toLocaleDateString("en-US", {
     weekday: "long",
     day: "numeric",

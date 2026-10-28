@@ -1,8 +1,9 @@
 import axios, { AxiosInstance, InternalAxiosRequestConfig, AxiosError } from "axios";
 import { useAuthStore } from "@/store/authStore";
+import type { AuthUser } from "@/types";
 
 // Backend serves the API under /v1 (see backend/src/app.ts)
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/v1";
+export const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/v1";
 
 // ─── Axios Instance ───────────────────────────────────────────────────────────
 
@@ -108,6 +109,44 @@ api.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
+// ─── Health / feature flags ───────────────────────────────────────────────────
+
+export interface ApiFeatures {
+  email: boolean;
+  ai: boolean;
+  billing: boolean;
+}
+
+/** GET /health (outside /v1) — tells which integrations run in demo mode. */
+export async function getFeatures(): Promise<ApiFeatures | null> {
+  try {
+    const origin = BASE_URL.replace(/\/v1\/?$/, "");
+    const { data } = await axios.get<{ features?: ApiFeatures }>(`${origin}/health`);
+    return data.features ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Restore a session from the HttpOnly refresh cookie. Returns false if none. */
+export async function restoreSession(): Promise<boolean> {
+  try {
+    const { data } = await axios.post<{ accessToken: string; user: AuthUser }>(
+      `${BASE_URL}/auth/refresh`,
+      {},
+      { withCredentials: true }
+    );
+    const { user, setAuth } = useAuthStore.getState();
+    // Keep richer /account fields already in the store
+    setAuth({ ...user, ...data.user }, data.accessToken);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export const DEMO_CREDENTIALS = { email: "demo@invoiceai.com", password: "Demo1234!" };
 
 // ─── Typed API helpers ────────────────────────────────────────────────────────
 

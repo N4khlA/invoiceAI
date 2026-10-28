@@ -1,244 +1,195 @@
 "use client";
 
-import { useDashboard } from "@/hooks/useDashboard";
-import { formatCurrency } from "@/lib/formatters";
-import { InvoiceStatus } from "@/types";
-import {
-  DollarSign,
-  Clock,
-  CheckCircle,
-  AlertTriangle,
-  TrendingUp,
-  FileText,
-  ChevronRight,
-} from "lucide-react";
 import Link from "next/link";
-import { cn } from "@/lib/formatters";
+import { AlertTriangle, ArrowRight, CheckCircle2, Clock, FileText, Plus, TrendingDown, TrendingUp, Wallet } from "lucide-react";
+import { useDashboard } from "@/hooks/useDashboard";
+import { useAuthStore } from "@/store/authStore";
+import { cn, formatCurrency, formatDate } from "@/lib/formatters";
+import { Button, Card, CardHeader, EmptyState, ErrorState, Page, PageHeader, Skeleton } from "@/components/ui";
+import { InvoiceTable } from "@/components/invoices/InvoiceTable";
+import { RevenueChart } from "@/components/dashboard/RevenueChart";
 
-const STATUS_STYLES: Record<InvoiceStatus, string> = {
-  DRAFT: "bg-muted text-muted-foreground",
-  SENT: "bg-blue-500/15 text-blue-400",
-  VIEWED: "bg-purple-500/15 text-purple-400",
-  OVERDUE: "bg-red-500/15 text-red-400",
-  PAID: "bg-emerald-500/15 text-emerald-400",
-  VOID: "bg-zinc-500/15 text-zinc-400",
-};
+function greeting() {
+  const h = new Date().getHours();
+  return h < 12 ? "Good morning" : h < 18 ? "Good afternoon" : "Good evening";
+}
 
-function StatCard({
+function StatTile({
   label,
   value,
   icon: Icon,
-  trend,
-  className,
+  hint,
+  tone = "default",
 }: {
   label: string;
   value: string;
   icon: React.ElementType;
-  trend?: string;
-  className?: string;
+  hint?: React.ReactNode;
+  tone?: "default" | "danger";
 }) {
   return (
-    <div
-      className={cn(
-        "rounded-xl border border-border bg-card p-5 flex items-start justify-between",
-        className
-      )}
-    >
-      <div>
-        <p className="text-sm text-muted-foreground mb-1">{label}</p>
-        <p className="text-2xl font-bold text-foreground">{value}</p>
-        {trend && (
-          <p className="text-xs text-emerald-400 flex items-center gap-1 mt-1">
-            <TrendingUp className="h-3 w-3" />
-            {trend}
-          </p>
-        )}
+    <Card className="p-5">
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-medium text-muted-foreground">{label}</p>
+        <span
+          className={cn(
+            "flex size-8 items-center justify-center rounded-lg",
+            tone === "danger" ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary"
+          )}
+        >
+          <Icon className="size-4" aria-hidden />
+        </span>
       </div>
-      <div className="rounded-lg bg-primary/10 p-2.5">
-        <Icon className="h-4 w-4 text-primary" />
-      </div>
-    </div>
+      <p className="tabular mt-3 font-display text-2xl font-bold text-foreground sm:text-[26px]">{value}</p>
+      {hint && <div className="mt-1 text-xs text-muted-foreground">{hint}</div>}
+    </Card>
   );
 }
 
 export default function DashboardPage() {
-  const { data, isLoading, error } = useDashboard();
+  const { data, isLoading, error, refetch } = useDashboard();
+  const user = useAuthStore((s) => s.user);
+  const currency = user?.currency ?? "USD";
+  const firstName = user?.name?.split(" ")[0];
 
   if (error) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <p className="text-destructive text-sm">{error}</p>
-      </div>
+      <Page>
+        <ErrorState message={error} onRetry={refetch} />
+      </Page>
     );
   }
 
-  // Format the YTD change as a trend label, e.g. "+12% vs last year"
-  const revenueTrend =
-    data?.stats.revenueYtdChange != null
-      ? `${data.stats.revenueYtdChange >= 0 ? "+" : ""}${data.stats.revenueYtdChange.toFixed(1)}% vs last year`
-      : undefined;
+  const change = data?.stats.revenueYtdChange ?? 0;
+  const hasInvoices = (data?.recentInvoices.length ?? 0) > 0;
 
   return (
-    <div className="p-6 max-w-6xl mx-auto space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">
-          Overview of your invoicing activity
-        </p>
-      </div>
-
-      {/* Stats grid */}
-      {isLoading ? (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {[...Array(4)].map((_, i) => (
-            <div
-              key={i}
-              className="rounded-xl border border-border bg-card p-5 h-28 animate-pulse"
-            />
-          ))}
-        </div>
-      ) : (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard
-            label="Total Revenue"
-            value={formatCurrency(data?.stats.revenueYtd ?? 0)}
-            icon={DollarSign}
-            trend={revenueTrend}
-          />
-          <StatCard
-            label="Outstanding"
-            value={formatCurrency(data?.stats.outstandingAmount ?? 0)}
-            icon={Clock}
-          />
-          <StatCard
-            label="Collected This Month"
-            value={formatCurrency(data?.stats.paidThisMonth ?? 0)}
-            icon={CheckCircle}
-          />
-          <StatCard
-            label="Overdue"
-            value={String(data?.stats.overdueCount ?? 0)}
-            icon={AlertTriangle}
-          />
-        </div>
-      )}
-
-      <div className="grid lg:grid-cols-2 gap-6">
-        {/* Recent invoices */}
-        <div className="rounded-xl border border-border bg-card overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-            <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
-              <FileText className="h-4 w-4 text-muted-foreground" />
-              Recent Invoices
-            </h2>
-            <Link
-              href="/invoices"
-              className="text-xs text-primary hover:underline flex items-center gap-0.5"
-            >
-              View all <ChevronRight className="h-3 w-3" />
+    <Page>
+      <PageHeader
+        title={`${greeting()}${firstName ? `, ${firstName}` : ""}`}
+        description="Here's where your money stands today."
+        actions={
+          <Button asChild>
+            <Link href="/invoices/new">
+              <Plus aria-hidden />
+              New invoice
             </Link>
-          </div>
-          {isLoading ? (
-            <div className="space-y-px">
-              {[...Array(5)].map((_, i) => (
-                <div key={i} className="px-5 py-3.5 h-12 animate-pulse bg-muted/20" />
-              ))}
-            </div>
-          ) : (data?.recentInvoices?.length ?? 0) === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 text-center px-6">
-              <FileText className="h-8 w-8 text-muted-foreground mb-2" />
-              <p className="text-sm text-muted-foreground">No invoices yet.</p>
-              <Link
-                href="/invoices/new"
-                className="mt-2 text-sm text-primary hover:underline"
-              >
-                Create your first invoice →
-              </Link>
-            </div>
-          ) : (
-            <ul className="divide-y divide-border">
-              {data?.recentInvoices?.map((inv) => (
-                <li key={inv.id}>
-                  <Link
-                    href={`/invoices/${inv.id}`}
-                    className="flex items-center justify-between px-5 py-3 hover:bg-accent transition-colors"
-                  >
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-foreground truncate">
-                        {inv.client?.name ?? "—"}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {inv.invoiceNumber}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-3 shrink-0">
-                      <span
-                        className={cn(
-                          "rounded-full px-2 py-0.5 text-xs font-medium",
-                          STATUS_STYLES[inv.status]
-                        )}
-                      >
-                        {inv.status}
-                      </span>
-                      <span className="text-sm font-semibold text-foreground">
-                        {formatCurrency(inv.total)}
-                      </span>
-                    </div>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+          </Button>
+        }
+      />
 
-        {/* Overdue actions */}
-        <div className="rounded-xl border border-border bg-card overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-            <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
-              <AlertTriangle className="h-4 w-4 text-red-400" />
-              Overdue — Needs Attention
-            </h2>
+      {/* Stat tiles */}
+      <section aria-label="Key figures" className="grid grid-cols-1 gap-4 min-[480px]:grid-cols-2 xl:grid-cols-4">
+        {isLoading || !data ? (
+          Array.from({ length: 4 }).map((_, i) => (
+            <Card key={i} className="space-y-4 p-5">
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-7 w-32" />
+            </Card>
+          ))
+        ) : (
+          <>
+            <StatTile
+              label="Revenue this year"
+              value={formatCurrency(data.stats.revenueYtd, currency)}
+              icon={Wallet}
+              hint={
+                change !== 0 ? (
+                  <span className={cn("inline-flex items-center gap-1 font-medium", change > 0 ? "text-success" : "text-destructive")}>
+                    {change > 0 ? <TrendingUp className="size-3.5" aria-hidden /> : <TrendingDown className="size-3.5" aria-hidden />}
+                    {change > 0 ? "+" : ""}
+                    {change.toFixed(1)}% vs last year
+                  </span>
+                ) : (
+                  "Paid invoices since Jan 1"
+                )
+              }
+            />
+            <StatTile label="Outstanding" value={formatCurrency(data.stats.outstandingAmount, currency)} icon={Clock} hint="Sent and awaiting payment" />
+            <StatTile label="Collected this month" value={formatCurrency(data.stats.paidThisMonth, currency)} icon={CheckCircle2} hint="Marked as paid" />
+            <StatTile
+              label="Overdue"
+              value={String(data.stats.overdueCount)}
+              icon={AlertTriangle}
+              tone={data.stats.overdueCount > 0 ? "danger" : "default"}
+              hint={data.stats.overdueCount > 0 ? "Need a follow-up" : "Nothing late — nice"}
+            />
+          </>
+        )}
+      </section>
+
+      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <Card className="lg:col-span-2">
+          <CardHeader title="Revenue collected" description="Paid invoices, last 6 months" />
+          <div className="px-3 pb-4 pt-5 sm:px-5">
+            {isLoading || !data ? <Skeleton className="h-[240px] w-full" /> : <RevenueChart data={data.revenueChart} currency={currency} />}
           </div>
-          {isLoading ? (
-            <div className="space-y-px">
-              {[...Array(3)].map((_, i) => (
-                <div key={i} className="px-5 py-3.5 h-14 animate-pulse bg-muted/20" />
-              ))}
+        </Card>
+
+        <Card className="flex flex-col">
+          <CardHeader title="Needs attention" description="Overdue invoices" />
+          {isLoading || !data ? (
+            <div className="space-y-3 p-5">
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
             </div>
-          ) : (data?.overdueInvoices?.length ?? 0) === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 text-center px-6">
-              <CheckCircle className="h-8 w-8 text-emerald-400 mb-2" />
-              <p className="text-sm text-muted-foreground">
-                All caught up! No overdue invoices.
-              </p>
-            </div>
+          ) : data.overdueInvoices.length === 0 ? (
+            <EmptyState icon={CheckCircle2} title="All caught up" description="No overdue invoices right now." className="flex-1 py-10" />
           ) : (
             <ul className="divide-y divide-border">
-              {data?.overdueInvoices?.map((inv) => (
+              {data.overdueInvoices.slice(0, 5).map((inv) => (
                 <li key={inv.id}>
-                  <Link
-                    href={`/invoices/${inv.id}`}
-                    className="flex items-center justify-between px-5 py-3 hover:bg-accent transition-colors"
-                  >
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-foreground truncate">
-                        {inv.clientName}
-                      </p>
-                      <p className="text-xs text-red-400">
-                        Due {new Date(inv.dueDate).toLocaleDateString()}
+                  <Link href={`/invoices/${inv.id}`} className="flex items-center gap-3 px-5 py-3.5 transition-colors hover:bg-muted/50">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-foreground">{inv.clientName}</p>
+                      <p className="text-xs text-muted-foreground">
+                        <span className="font-mono">{inv.invoiceNumber}</span> · due {formatDate(inv.dueDate)}
                       </p>
                     </div>
-                    <span className="text-sm font-semibold text-red-400 shrink-0">
-                      {formatCurrency(inv.amount)}
-                    </span>
+                    <div className="text-right">
+                      <p className="tabular text-sm font-semibold text-foreground">{formatCurrency(inv.amount, currency)}</p>
+                      <p className="text-xs font-medium text-destructive">{inv.daysOverdue}d late</p>
+                    </div>
                   </Link>
                 </li>
               ))}
             </ul>
           )}
-        </div>
+        </Card>
       </div>
-    </div>
+
+      <Card className="mt-6 overflow-hidden">
+        <CardHeader
+          title="Recent invoices"
+          action={
+            hasInvoices ? (
+              <Button asChild variant="ghost" size="sm">
+                <Link href="/invoices">
+                  View all
+                  <ArrowRight aria-hidden />
+                </Link>
+              </Button>
+            ) : undefined
+          }
+        />
+        {!isLoading && !hasInvoices ? (
+          <EmptyState
+            icon={FileText}
+            title="Create your first invoice"
+            description="Add a client, list your work and send it — it takes about a minute."
+            action={
+              <Button asChild>
+                <Link href="/invoices/new">
+                  <Plus aria-hidden />
+                  New invoice
+                </Link>
+              </Button>
+            }
+          />
+        ) : (
+          <InvoiceTable invoices={data?.recentInvoices ?? []} isLoading={isLoading} />
+        )}
+      </Card>
+    </Page>
   );
 }

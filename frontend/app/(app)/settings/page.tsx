@@ -1,1 +1,5 @@
-export { default } from "@/app/(app)/account/page";
+import { redirect } from "next/navigation";
+
+export default function SettingsPage() {
+  redirect("/account");
+}

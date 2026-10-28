@@ -5,17 +5,17 @@ import { useAuthStore } from "@/store/authStore";
 
 // ─── Payload types (mirror backend PATCH /account schema) ─────────────────────
 
-export interface UpdateBusinessDetailsPayload {
-  bizName: string;
-  bizAddress: string;
-  currency: Currency;
-  /** Optional public URL of the business logo */
+export interface UpdateAccountPayload {
+  name?: string;
+  bizName?: string;
+  bizAddress?: string;
+  bizPhone?: string;
+  bizWebsite?: string;
+  /** Public image URL; "" removes the logo */
   logoUrl?: string;
-}
-
-export interface UpdatePreferencesPayload {
-  aiTone: AiTone;
-  readReceipts: boolean;
+  currency?: Currency;
+  aiTone?: AiTone;
+  readReceipts?: boolean;
 }
 
 export interface ChangePasswordPayload {
@@ -64,23 +64,7 @@ export function useAccount(): UseAccountReturn {
 // ─── Mutation API helpers ──────────────────────────────────────────────────────
 
 export const accountApi = {
-  // PATCH /account — strict backend schema: bizName/bizAddress/logoUrl/
-  // currency/aiTone/readReceipts only. The logo is a URL (no upload endpoint).
-  updateBusiness: async (
-    payload: UpdateBusinessDetailsPayload
-  ): Promise<AuthUser> => {
-    const { data } = await api.patch<AuthUser>("/account", {
-      bizName: payload.bizName,
-      bizAddress: payload.bizAddress,
-      currency: payload.currency,
-      ...(payload.logoUrl ? { logoUrl: payload.logoUrl } : {}),
-    });
-    return data;
-  },
-
-  updatePreferences: async (
-    payload: UpdatePreferencesPayload
-  ): Promise<AuthUser> => {
+  update: async (payload: UpdateAccountPayload): Promise<AuthUser> => {
     const { data } = await api.patch<AuthUser>("/account", payload);
     return data;
   },
