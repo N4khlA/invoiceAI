@@ -1,14 +1,20 @@
 // src/services/ai.service.ts
 // Generates follow-up emails via OpenAI GPT-4o.
+// Without OPENAI_API_KEY (demo mode) a tone-aware template is returned instead.
 // All inputs are validated and scoped to userId before reaching this layer.
 
 import OpenAI from "openai";
 import { InvoiceStatus, AiTone } from "@prisma/client";
 import prisma from "../lib/prisma";
 import { AppError } from "../lib/errors";
-import { env } from "../config/env";
+import { env, features } from "../config/env";
+import { formatMoney } from "./email.service";
 
-const openai = new OpenAI({ apiKey: env.OPENAI_API_KEY });
+let _openai: OpenAI | null = null;
+function getOpenAI(): OpenAI {
+  if (!_openai) _openai = new OpenAI({ apiKey: env.OPENAI_API_KEY });
+  return _openai;
+}
 
 const ALLOWED_STATUSES: InvoiceStatus[] = [
   InvoiceStatus.SENT,
@@ -89,10 +95,21 @@ Return ONLY a JSON object with keys "subject" (string) and "body" (string, plain
 Do not include any markdown, code fences, or extra text.
 `.trim();
 
+  if (!features.ai) {
+    return templateFollowUp({
+      tone: effectiveTone,
+      businessName,
+      clientName,
+      invoiceNumber,
+      amount: formatMoney(invoice.total, currency),
+      overdueContext,
+    });
+  }
+
   // ── Call OpenAI ────────────────────────────────────────────────────────────
   let raw: string;
   try {
-    const completion = await openai.chat.completions.create({
+    const completion = await getOpenAI().chat.completions.create({
       model:      "gpt-4o",
       max_tokens: 500,
       messages: [
@@ -123,5 +140,50 @@ Do not include any markdown, code fences, or extra text.
   } catch {
     console.error("[ai.service] Failed to parse OpenAI response:", raw);
     throw AppError.serviceUnavailable("AI returned an invalid response. Please try again.", "AI_PARSE_ERROR");
+  }
+}
+
+// ── Demo-mode fallback ────────────────────────────────────────────────────────
+
+function templateFollowUp(ctx: {
+  tone: AiTone;
+  businessName: string;
+  clientName: string;
+  invoiceNumber: string;
+  amount: string;
+  overdueContext: string;
+}): FollowUpResult {
+  const { tone, businessName, clientName, invoiceNumber, amount, overdueContext } = ctx;
+  const overdue = overdueContext.trim();
+
+  switch (tone) {
+    case AiTone.FRIENDLY:
+      return {
+        subject: `Quick reminder about invoice ${invoiceNumber}`,
+        body:
+          `Hi ${clientName},\n\n` +
+          `Hope you're doing well! Just a friendly nudge about invoice ${invoiceNumber} for ${amount}. ` +
+          `${overdue ? overdue + " " : ""}If it's already on its way, please ignore this.\n\n` +
+          `Thanks so much,\n${businessName}`,
+      };
+    case AiTone.FORMAL:
+      return {
+        subject: `Payment reminder: invoice ${invoiceNumber}`,
+        body:
+          `Dear ${clientName},\n\n` +
+          `We would like to remind you that invoice ${invoiceNumber}, totalling ${amount}, remains outstanding. ` +
+          `${overdue ? overdue + " " : ""}We would be grateful if you could arrange payment at your earliest convenience.\n\n` +
+          `Yours sincerely,\n${businessName}`,
+      };
+    case AiTone.PROFESSIONAL:
+    default:
+      return {
+        subject: `Invoice ${invoiceNumber} — payment reminder`,
+        body:
+          `Hi ${clientName},\n\n` +
+          `This is a reminder that invoice ${invoiceNumber} for ${amount} is awaiting payment. ` +
+          `${overdue ? overdue + " " : ""}You can view and pay it using the link below.\n\n` +
+          `Best regards,\n${businessName}`,
+      };
   }
 }

@@ -34,6 +34,7 @@ const listQuerySchema = z.object({
   limit: z.coerce.number().int().positive().max(100).default(20),
   // Boolean coercion from query string — .default(false) not "false"
   archived: z.enum(["true", "false"]).transform((v) => v === "true").default(false),
+  search: z.string().trim().max(100).optional(),
 });
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

@@ -6,11 +6,12 @@
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { Resend } from "resend";
 import { prisma } from "../lib/prisma";
 import { signAccessToken, generateRefreshToken } from "../lib/jwt";
 import { AppError } from "../lib/errors";
-import { env } from "../config/env";
+import { env, features } from "../config/env";
+import { sendMail } from "../lib/mailer";
+import { passwordResetEmailHtml } from "./email.service";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const BCRYPT_ROUNDS = 12;
@@ -67,13 +68,6 @@ async function issueTokens(userId: string, email: string, plan: string) {
   const accessToken = signAccessToken({ sub: userId, email, plan });
 
   return { accessToken, rawRefresh };
-}
-
-// ── Resend email client (lazy singleton) ──────────────────────────────────────
-let _resend: Resend | null = null;
-function getResend(): Resend {
-  if (!_resend) _resend = new Resend(env.RESEND_API_KEY);
-  return _resend;
 }
 
 // ── Service methods ───────────────────────────────────────────────────────────
@@ -183,18 +177,17 @@ export async function forgotPassword(email: string) {
       { expiresIn: "15m" },
     );
 
-    const resetLink = `${env.FRONTEND_URL}/auth/reset-password?token=${resetToken}`;
+    const resetLink = `${env.FRONTEND_URL}/reset-password?token=${resetToken}`;
 
-    await getResend().emails.send({
-      from: env.EMAIL_FROM,
+    if (!features.email) {
+      // Demo mode: no email provider, so surface the link for local testing
+      console.log(`[mail:demo] password reset link for ${user.email}: ${resetLink}`);
+    }
+
+    await sendMail({
       to: user.email,
       subject: "Reset your InvoiceAI password",
-      html: `
-        <p>Hi,</p>
-        <p>Click the link below to reset your password. It expires in 15 minutes.</p>
-        <p><a href="${resetLink}">Reset my password</a></p>
-        <p>If you didn't request this, you can safely ignore this email.</p>
-      `.trim(),
+      html: passwordResetEmailHtml(resetLink),
     });
   }
 
