@@ -96,3 +96,22 @@ describe("Invoice follow-up & void routes (Integration)", () => {
     );
   });
 });
+
+describe("Client summary (Integration)", () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it("counts only paid + open invoices; drafts and voids are excluded", async () => {
+    (prisma.client.findFirst as jest.Mock).mockResolvedValue({ id: "cl-1", userId: "user-1", name: "Acme" });
+    (prisma.invoice.aggregate as jest.Mock).mockImplementation(({ where }: { where: { status: unknown } }) =>
+      Promise.resolve({ _sum: { total: where.status === InvoiceStatus.PAID ? 300 : 120 } }),
+    );
+
+    const res = await request(app).get("/v1/clients/cl-1").set("Authorization", auth());
+
+    expect(res.status).toBe(200);
+    expect(res.body.summary).toEqual({ totalInvoiced: 420, totalPaid: 300, outstanding: 120 });
+    for (const [args] of (prisma.invoice.aggregate as jest.Mock).mock.calls) {
+      expect(args.where.status).toBeDefined(); // never an unfiltered sum
+    }
+  });
+});

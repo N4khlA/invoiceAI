@@ -1,5 +1,5 @@
 // prisma/seed.ts
-// Demo seed: 1 user, 3 clients, 5 invoices (all statuses), 2 follow-ups.
+// Demo seed: 1 user, 5 clients, 13 invoices (all statuses + paid history), 2 follow-ups.
 // Run with: npx ts-node prisma/seed.ts
 
 import { PrismaClient, InvoiceStatus, Plan, AiTone } from "@prisma/client";
@@ -222,13 +222,98 @@ async function main() {
     },
   });
 
+  // ── Paid history + one VIEWED invoice so the dashboard chart has a story ──
+  const [clientD, clientE] = await Promise.all([
+    prisma.client.create({
+      data: {
+        userId: user.id,
+        name: "Atlas Coffee Co.",
+        email: "finance@atlascoffee.com",
+        company: "Atlas Coffee Co.",
+        address: "12 Roastery Lane, Portland, OR 97205",
+      },
+    }),
+    prisma.client.create({
+      data: {
+        userId: user.id,
+        name: "Marco Rossi",
+        email: "marco@rossi-studio.it",
+        company: "Rossi Studio",
+        address: "Via Roma 21, 20121 Milano, Italy",
+      },
+    }),
+  ]);
+
+  const DAY = 86_400_000;
+  const history: Array<{ client: typeof clientA; desc: string; qty: number; rate: number; tax: number; paidDaysAgo: number }> = [
+    { client: clientD, desc: "Packaging illustration set", qty: 1, rate: 2200, tax: 0, paidDaysAgo: 160 },
+    { client: clientB, desc: "Landing page design", qty: 24, rate: 85, tax: 0, paidDaysAgo: 138 },
+    { client: clientA, desc: "Quarterly brand retainer", qty: 1, rate: 3000, tax: 20, paidDaysAgo: 112 },
+    { client: clientE, desc: "Portfolio site build", qty: 32, rate: 75, tax: 0, paidDaysAgo: 96 },
+    { client: clientD, desc: "Menu redesign", qty: 1, rate: 1400, tax: 0, paidDaysAgo: 70 },
+    { client: clientA, desc: "Quarterly brand retainer", qty: 1, rate: 3000, tax: 20, paidDaysAgo: 41 },
+    { client: clientB, desc: "MVP Development — Sprint 0", qty: 30, rate: 70, tax: 0, paidDaysAgo: 33 },
+  ];
+
+  let n = 6;
+  for (const h of history) {
+    const lineTotal = h.qty * h.rate;
+    const taxAmount = lineTotal * (h.tax / 100);
+    const paidAt = new Date(Date.now() - h.paidDaysAgo * DAY);
+    await prisma.invoice.create({
+      data: {
+        userId: user.id,
+        clientId: h.client.id,
+        number: `INV-${String(n++).padStart(4, "0")}`,
+        status: InvoiceStatus.PAID,
+        issueDate: new Date(paidAt.getTime() - 20 * DAY),
+        sentAt: new Date(paidAt.getTime() - 20 * DAY),
+        viewedAt: new Date(paidAt.getTime() - 18 * DAY),
+        dueDate: new Date(paidAt.getTime() + 10 * DAY),
+        paidAt,
+        createdAt: new Date(paidAt.getTime() - 20 * DAY),
+        subtotal: lineTotal,
+        taxAmount,
+        total: lineTotal + taxAmount,
+        snapshotData: snapshot(h.client),
+        items: {
+          create: [{ description: h.desc, quantity: h.qty, unitPrice: h.rate, taxPct: h.tax, lineTotal, taxAmount, amount: lineTotal + taxAmount }],
+        },
+      },
+    });
+  }
+
+  await prisma.invoice.create({
+    data: {
+      userId: user.id,
+      clientId: clientE.id,
+      number: `INV-${String(n++).padStart(4, "0")}`,
+      status: InvoiceStatus.VIEWED,
+      issueDate: new Date(Date.now() - 4 * DAY),
+      sentAt: new Date(Date.now() - 4 * DAY),
+      viewedAt: new Date(Date.now() - 2 * DAY),
+      dueDate: new Date(Date.now() + 10 * DAY),
+      subtotal: 1800,
+      taxAmount: 0,
+      total: 1800,
+      terms: "Bank transfer within 14 days. Please reference the invoice number.",
+      snapshotData: snapshot(clientE),
+      items: {
+        create: [
+          { description: "Photography — product shoot (half day)", quantity: 1, unitPrice: 1200, taxPct: 0, lineTotal: 1200, taxAmount: 0, amount: 1200 },
+          { description: "Retouching", quantity: 12, unitPrice: 50, taxPct: 0, lineTotal: 600, taxAmount: 0, amount: 600 },
+        ],
+      },
+    },
+  });
+
   // Set invoicesThisMonth counter to match seeded data
   await prisma.user.update({
     where: { id: user.id },
-    data: { invoicesThisMonth: 2 }, // DRAFT + SENT this month
+    data: { invoicesThisMonth: 3 }, // DRAFT + SENT + VIEWED this month
   });
 
-  console.log(`  ✓ 5 invoices created (DRAFT, SENT, PAID, OVERDUE, VOID)`);
+  console.log(`  ✓ ${n - 1} invoices created (every status + 6 months of paid history)`);
   console.log(`  ✓ 2 follow-ups created on overdue invoice`);
   console.log("\n🎉 Seed complete!");
   console.log("   Login: demo@invoiceai.com / Demo1234!");

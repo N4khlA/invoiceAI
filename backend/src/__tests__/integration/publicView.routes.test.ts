@@ -61,6 +61,17 @@ describe("Public invoice view route (Integration)", () => {
     );
   });
 
+  it("does not flip to VIEWED when the sender turned read receipts off", async () => {
+    (prisma.invoice.findFirst as jest.Mock).mockResolvedValue({ ...publicInvoice, user: { readReceipts: false } });
+
+    const res = await request(app).get("/v1/invoices/view/real-token-abc");
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe(InvoiceStatus.SENT);
+    expect(res.body.user).toBeUndefined();
+    expect(prisma.invoice.update).not.toHaveBeenCalled();
+  });
+
   it("404 JSON for an unknown token (no auth required)", async () => {
     (prisma.invoice.findFirst as jest.Mock).mockResolvedValue(null);
 
