@@ -22,7 +22,7 @@ export function Modal({ open, onOpenChange, title, description, children, footer
         <Dialog.Overlay className="fixed inset-0 z-50 animate-fade-in bg-slate-950/50 backdrop-blur-[2px]" />
         <Dialog.Content
           className={cn(
-            "fixed inset-x-0 bottom-0 z-50 max-h-[92dvh] w-full animate-slide-up overflow-y-auto rounded-t-2xl border border-border bg-card shadow-pop focus:outline-none",
+            "fixed inset-x-0 bottom-0 z-50 max-h-[92dvh] w-full animate-slide-up overflow-y-auto overscroll-contain rounded-t-2xl border border-border bg-card shadow-pop focus:outline-none",
             "sm:inset-auto sm:left-1/2 sm:top-1/2 sm:max-w-lg sm:-translate-x-1/2 sm:-translate-y-1/2 sm:animate-scale-in sm:rounded-2xl",
             className
           )}

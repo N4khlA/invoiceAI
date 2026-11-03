@@ -81,7 +81,7 @@ function LoginForm() {
         <FormError message={serverError} />
 
         <Field label="Email" error={errors.email?.message}>
-          <Input type="email" autoComplete="email" placeholder="you@studio.com" {...register("email")} />
+          <Input type="email" autoComplete="email" spellCheck={false} placeholder="you@studio.com" {...register("email")} />
         </Field>
 
         <div className="space-y-1.5">

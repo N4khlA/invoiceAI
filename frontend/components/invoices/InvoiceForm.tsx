@@ -59,7 +59,7 @@ export function InvoiceForm({ invoice, defaultClientId }: InvoiceFormProps) {
     control,
     watch,
     setValue,
-    formState: { errors, isSubmitting },
+    formState: { errors, isSubmitting, isDirty, isSubmitSuccessful },
   } = useForm<InvoiceFormValues>({
     resolver: zodResolver(invoiceSchema),
     defaultValues: invoice
@@ -94,6 +94,15 @@ export function InvoiceForm({ invoice, defaultClientId }: InvoiceFormProps) {
       setValue("clientId", defaultClientId);
     }
   }, [clients, defaultClientId, isEdit, setValue]);
+
+  // Warn before closing or reloading the tab with unsaved line items
+  const unsaved = isDirty && !isSubmitting && !isSubmitSuccessful;
+  useEffect(() => {
+    if (!unsaved) return;
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [unsaved]);
 
   const { fields, append, remove } = useFieldArray({ control, name: "lineItems" });
   const lineItems = watch("lineItems");

@@ -65,7 +65,7 @@ export function ClientForm({
           <Input autoComplete="off" placeholder="Sarah Chen" {...register("name")} />
         </Field>
         <Field label="Email" error={errors.email?.message} hint="Invoices and reminders go here.">
-          <Input type="email" autoComplete="off" placeholder="billing@client.com" {...register("email")} />
+          <Input type="email" autoComplete="off" spellCheck={false} placeholder="billing@client.com" {...register("email")} />
         </Field>
         <Field label="Company" optional error={errors.company?.message}>
           <Input autoComplete="off" placeholder="Beacon Digital Ltd" {...register("company")} />

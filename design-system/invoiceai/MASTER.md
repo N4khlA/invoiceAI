@@ -51,6 +51,12 @@ Button (primary / secondary / outline / ghost / destructive; sm / md / lg / icon
 Input, Textarea, Select, Label + FieldError, Card, Badge, StatusBadge, Skeleton,
 EmptyState, PageHeader, Spinner, ThemeToggle, ConfirmDialog, Toast.
 
+Feature components: `billing/UpgradePrompt` (inline Pro nudge — show it where the
+locked feature would be, never as a blocking modal), Pay now card on the public
+invoice (amount + full-width primary button on mobile + "Secure checkout" line),
+and the demo checkout (amber "Demo" note, read-only Stripe test card — never ask
+for real card data outside Stripe).
+
 ## Interaction
 
 - Touch targets ≥ 40px (44px on mobile primary actions); `cursor-pointer` on everything clickable.

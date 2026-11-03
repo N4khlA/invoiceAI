@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -134,6 +134,11 @@ export function Sidebar() {
 
   // Close drawer on route change and lock body scroll while open
   useEffect(() => setOpen(false), [pathname]);
+  // Move focus into the drawer so keyboard and screen-reader users land in it
+  const closeRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (open) closeRef.current?.focus();
+  }, [open]);
   useEffect(() => {
     if (!open) return;
     const prev = document.body.style.overflow;
@@ -168,9 +173,10 @@ export function Sidebar() {
 
       {open && (
         <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Menu">
-          <div className="absolute inset-0 animate-fade-in bg-slate-950/50" onClick={() => setOpen(false)} />
-          <div className="absolute inset-y-0 left-0 w-[280px] max-w-[85vw] animate-slide-in-left border-r border-border bg-card shadow-pop">
+          <div className="absolute inset-0 animate-fade-in bg-slate-950/50" onClick={() => setOpen(false)} aria-hidden />
+          <div className="absolute inset-y-0 left-0 w-[280px] max-w-[85vw] animate-slide-in-left overflow-y-auto overscroll-contain border-r border-border bg-card shadow-pop">
             <Button
+              ref={closeRef}
               variant="ghost"
               size="icon"
               className="absolute right-3 top-3"

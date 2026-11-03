@@ -70,7 +70,7 @@ function LogoUploader({ account, onSaved }: { account: AuthUser; onSaved: (u: Au
         <div className="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-border bg-white">
           {account.logoUrl && !broken ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={account.logoUrl} alt="Current logo" className="size-full object-contain p-1.5" onError={() => setBroken(true)} />
+            <img src={account.logoUrl} alt="Current logo" width={64} height={64} className="size-full object-contain p-1.5" onError={() => setBroken(true)} />
           ) : (
             <ImageOff className="size-5 text-slate-400" aria-label="No logo" />
           )}

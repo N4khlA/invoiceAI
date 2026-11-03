@@ -55,7 +55,7 @@ export function InvoicePaper(props: InvoicePaperProps) {
           <div>
             {logoUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={logoUrl} alt={`${business.name ?? "Business"} logo`} className="mb-3 h-10 w-auto max-w-[160px] object-contain" />
+              <img src={logoUrl} alt={`${business.name ?? "Business"} logo`} width={160} height={40} className="mb-3 h-10 w-auto max-w-[160px] object-contain" />
             ) : (
               <div className="mb-3 flex size-10 items-center justify-center rounded-lg bg-indigo-600 font-display text-lg font-bold text-white" aria-hidden>
                 {(business.name ?? "?")[0]}
