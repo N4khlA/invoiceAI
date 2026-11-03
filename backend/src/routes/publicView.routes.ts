@@ -8,10 +8,18 @@
 // in app.ts BEFORE the global authenticate guard.
 
 import { Router } from "express";
-import { getPublicInvoice } from "../controllers/invoice.controller";
+import {
+  getPublicInvoice,
+  payPublicInvoice,
+  demoPayPublicInvoice,
+} from "../controllers/invoice.controller";
+import { paymentLimiter } from "../middleware/rateLimiter";
 
 const router = Router();
 
 router.get("/:token", getPublicInvoice);
+// "Pay now" — own, tighter limit (see paymentLimiter)
+router.post("/:token/pay",      paymentLimiter, payPublicInvoice);
+router.post("/:token/demo-pay", paymentLimiter, demoPayPublicInvoice);
 
 export default router;

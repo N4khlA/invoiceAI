@@ -65,7 +65,7 @@ describe("Invoice Routes (Integration)", () => {
         phone: null,
         company: null,
       });
-      (prisma.invoice.count as jest.Mock).mockResolvedValue(0);
+      (prisma.invoice.findMany as jest.Mock).mockResolvedValue([]);
       (prisma.$transaction as jest.Mock).mockImplementation(async (cb: unknown) => {
         if (typeof cb === "function") return cb(prisma);
         return Promise.all(cb as Promise<unknown>[]);

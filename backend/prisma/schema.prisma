@@ -30,6 +30,8 @@ model User {
   // AI preferences
   aiTone      AiTone   @default(PROFESSIONAL)
   readReceipts Boolean @default(true)
+  // Automatic payment reminders (PRO): before due, on due, 7 and 14 days late
+  autoReminders Boolean @default(true)
   // Stripe
   stripeCustomerId      String?
   stripeSubscriptionId  String?
@@ -127,6 +129,9 @@ model Invoice {
   viewedAt     DateTime?
   paidAt       DateTime?
   voidedAt     DateTime?
+  // How the invoice was settled: MANUAL (marked paid), STRIPE or DEMO checkout
+  paidVia      String?
+  stripeCheckoutSessionId String?
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 
@@ -161,9 +166,13 @@ model FollowUp {
   invoiceId  String
   invoice    Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   sentAt     DateTime @default(now())
-  method     String   @default("EMAIL") // EMAIL | MANUAL
+  method     String   @default("EMAIL") // EMAIL | MANUAL | AUTO
   notes      String?
+  // Set on automatic reminders ("before-3", "due", "after-7", "after-14") so
+  // each stage is sent at most once per invoice, even with several workers
+  reminderKey String?
 
+  @@unique([invoiceId, reminderKey])
   @@index([invoiceId])
   @@map("follow_ups")
 }

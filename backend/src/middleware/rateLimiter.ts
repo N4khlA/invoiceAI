@@ -28,3 +28,12 @@ export const aiLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
+
+/** Public "Pay now" — each call can create a Stripe Checkout Session */
+export const paymentLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 20,
+  message: { error: "Too many payment attempts, please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});

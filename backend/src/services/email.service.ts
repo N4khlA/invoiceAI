@@ -69,6 +69,25 @@ export function followUpEmailHtml(opts: { body: string; viewUrl: string }): stri
   return layout("Invoice reminder", `${paragraphs}<div style="margin-top:12px">${button(opts.viewUrl, "View invoice")}</div>`);
 }
 
+export function paymentReceivedEmailHtml(opts: {
+  number: string;
+  clientName: string;
+  total: number;
+  currency: string;
+  invoiceUrl: string;
+}): string {
+  return layout(
+    `Invoice ${opts.number} paid`,
+    `<p style="font-size:13px;color:#64748b;margin:0 0 4px">Payment received</p>
+    <h1 style="font-size:28px;font-weight:700;color:#0f172a;margin:0 0 24px">${formatMoney(opts.total, opts.currency)}</h1>
+    <p style="font-size:15px;color:#334155;line-height:1.6;margin:0 0 28px">
+      <strong>${escapeHtml(opts.clientName)}</strong> just paid invoice <strong>${escapeHtml(opts.number)}</strong> online.
+      It has been marked as paid automatically.
+    </p>
+    ${button(opts.invoiceUrl, "Open invoice")}`,
+  );
+}
+
 export function passwordResetEmailHtml(resetLink: string): string {
   return layout(
     "Reset your password",

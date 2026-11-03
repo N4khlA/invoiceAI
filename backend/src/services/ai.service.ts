@@ -187,3 +187,112 @@ function templateFollowUp(ctx: {
       };
   }
 }
+
+// ── Invoice notes & payment terms ─────────────────────────────────────────────
+
+export type InvoiceTextKind = "notes" | "terms";
+
+export interface InvoiceTextInput {
+  userId:    string;
+  kind:      InvoiceTextKind;
+  clientId?: string;
+  items?:    string[];   // line-item descriptions, for context
+  dueDate?:  Date;
+  tone?:     AiTone;
+}
+
+export async function generateInvoiceText(input: InvoiceTextInput): Promise<{ text: string }> {
+  const { userId, kind, clientId, items = [], dueDate, tone } = input;
+
+  const user = await prisma.user.findUnique({
+    where:  { id: userId },
+    select: { bizName: true, aiTone: true },
+  });
+  if (!user) throw AppError.notFound("User");
+
+  let clientName: string | undefined;
+  if (clientId) {
+    const client = await prisma.client.findFirst({ where: { id: clientId, userId }, select: { name: true } });
+    if (!client) throw AppError.notFound("Client");
+    clientName = client.name;
+  }
+
+  const effectiveTone = tone ?? user.aiTone;
+  const businessName  = user.bizName ?? "our business";
+  const work          = items.filter(Boolean).slice(0, 10);
+  const due           = dueDate?.toLocaleDateString("en-US", { dateStyle: "long" });
+
+  if (!features.ai) {
+    return { text: templateInvoiceText({ kind, tone: effectiveTone, businessName, clientName, work, due }) };
+  }
+
+  const task = kind === "notes"
+    ? "Write a short thank-you note (2-3 sentences) to print at the bottom of an invoice. Mention the work if it helps."
+    : "Write concise payment terms (2-4 short lines) for an invoice: when payment is due, accepted method (bank transfer or card via the invoice link), and a polite late-payment line.";
+
+  const userPrompt = `
+${task}
+
+Context:
+- Business name: ${businessName}
+- Client name: ${clientName ?? "the client"}
+- Work billed: ${work.length ? work.join("; ") : "not specified"}
+- Due date: ${due ?? "not specified"}
+- Tone: ${toneInstruction(effectiveTone)}
+
+Return ONLY the text itself — no greeting line, no signature, no markdown, no quotes.
+`.trim();
+
+  try {
+    const completion = await getOpenAI().chat.completions.create({
+      model:      "gpt-4o",
+      max_tokens: 250,
+      messages: [
+        { role: "system", content: "You are a professional invoicing assistant. Reply with plain text only." },
+        { role: "user",   content: userPrompt },
+      ],
+    });
+    const text = completion.choices[0]?.message?.content?.trim() ?? "";
+    if (!text) throw new Error("Empty completion");
+    return { text: text.slice(0, 2000) };
+  } catch (err) {
+    console.error("[ai.service] OpenAI error:", err);
+    throw AppError.serviceUnavailable("AI service is temporarily unavailable. Please try again later.", "AI_UNAVAILABLE");
+  }
+}
+
+function templateInvoiceText(ctx: {
+  kind: InvoiceTextKind;
+  tone: AiTone;
+  businessName: string;
+  clientName?: string;
+  work: string[];
+  due?: string;
+}): string {
+  const { kind, tone, businessName, clientName, work, due } = ctx;
+  const what = work.length ? work.slice(0, 2).join(" and ").toLowerCase() : "this project";
+  const dueLine = due ? `Payment is due by ${due}.` : "Payment is due within 14 days of the issue date.";
+
+  if (kind === "terms") {
+    switch (tone) {
+      case AiTone.FRIENDLY:
+        return `${dueLine}\nYou can pay by bank transfer or by card straight from the invoice link.\nIf anything looks off, just reply and we'll sort it out together.`;
+      case AiTone.FORMAL:
+        return `${dueLine}\nPayment is accepted by bank transfer or by card via the secure invoice link.\nLate payments may incur a fee of 1.5% per month on the outstanding balance.`;
+      case AiTone.PROFESSIONAL:
+      default:
+        return `${dueLine}\nPay by bank transfer or by card using the invoice link.\nPlease include the invoice number as your payment reference.`;
+    }
+  }
+
+  const to = clientName ? `, ${clientName}` : "";
+  switch (tone) {
+    case AiTone.FRIENDLY:
+      return `Thanks so much${to}! It was a pleasure working on ${what} with you — looking forward to the next one.`;
+    case AiTone.FORMAL:
+      return `Thank you for your business${to}. ${businessName} appreciates the opportunity to deliver ${what}.`;
+    case AiTone.PROFESSIONAL:
+    default:
+      return `Thank you for your business${to}. It was great working with you on ${what}.`;
+  }
+}

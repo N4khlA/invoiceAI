@@ -3,15 +3,53 @@
 // Every query is scoped to userId — no cross-tenant data leaks.
 
 import crypto from "crypto";
-import { InvoiceStatus, Prisma, Plan } from "@prisma/client";
+import { InvoiceStatus, Prisma, Plan, Client, User } from "@prisma/client";
 import prisma from "../lib/prisma";
 import { AppError } from "../lib/errors";
-import { env } from "../config/env";
+import { env, features } from "../config/env";
 import { sendMail, MailMessage } from "../lib/mailer";
+import { getStripe } from "../lib/stripe";
 import { generateInvoicePdf } from "./pdf.service";
-import { invoiceEmailHtml, followUpEmailHtml } from "./email.service";
+import { invoiceEmailHtml, followUpEmailHtml, paymentReceivedEmailHtml } from "./email.service";
 
 const FREE_PLAN_MONTHLY_LIMIT = 5;
+
+const OPEN_STATUSES: InvoiceStatus[] = [InvoiceStatus.SENT, InvoiceStatus.VIEWED, InvoiceStatus.OVERDUE];
+
+/** Client + business details frozen onto the invoice so later edits don't rewrite history. */
+function buildSnapshot(client: Client, user: User) {
+  return {
+    client: {
+      name: client.name,
+      email: client.email,
+      address: client.address,
+      phone: client.phone,
+      company: client.company,
+    },
+    business: {
+      name: user.bizName,
+      address: user.bizAddress,
+      phone: user.bizPhone,
+      website: user.bizWebsite,
+      email: user.email,
+      currency: user.currency,
+      logoUrl: user.logoUrl,
+    },
+  };
+}
+
+/**
+ * Next free "INV-0001"-style number. Uses the highest existing number, not a
+ * count: deleting a draft would otherwise hand out a number that's still taken.
+ */
+async function nextInvoiceNumber(userId: string): Promise<string> {
+  const rows = await prisma.invoice.findMany({ where: { userId }, select: { number: true } });
+  const max = rows.reduce((m, { number }) => {
+    const n = Number(/^INV-(\d+)$/.exec(number)?.[1] ?? 0);
+    return n > m ? n : m;
+  }, 0);
+  return `INV-${String(max + 1).padStart(4, "0")}`;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CLIENT METHODS
@@ -145,7 +183,7 @@ export interface ListInvoicesParams {
   search?: string;
 }
 
-export async function listInvoices({ userId, page = 1, limit = 20, status, clientId, search }: ListInvoicesParams) {
+function invoiceWhere({ userId, status, clientId, search }: Omit<ListInvoicesParams, "page" | "limit">) {
   const where: Prisma.InvoiceWhereInput = { userId };
   if (status) where.status = status;
   if (clientId) where.clientId = clientId;
@@ -155,6 +193,11 @@ export async function listInvoices({ userId, page = 1, limit = 20, status, clien
       { client: { name: { contains: search, mode: "insensitive" } } },
     ];
   }
+  return where;
+}
+
+export async function listInvoices({ userId, page = 1, limit = 20, status, clientId, search }: ListInvoicesParams) {
+  const where = invoiceWhere({ userId, status, clientId, search });
 
   const skip = (page - 1) * limit;
   const [data, total] = await Promise.all([
@@ -205,8 +248,7 @@ export async function createInvoice(input: CreateInvoiceInput) {
   if (!client) throw AppError.notFound("Client");
 
   // ── Auto-generate invoice number ─────────────────────────────────────────
-  const invoiceCount = await prisma.invoice.count({ where: { userId } });
-  const invoiceNumber = `INV-${String(invoiceCount + 1).padStart(4, "0")}`;
+  const invoiceNumber = await nextInvoiceNumber(userId);
 
   // ── Calculate totals server-side ─────────────────────────────────────────
   let subtotal = 0;
@@ -233,23 +275,7 @@ export async function createInvoice(input: CreateInvoiceInput) {
   const total = subtotal + totalTaxAmount;
 
   // ── Build snapshot of client + user business info ────────────────────────
-  const snapshotData = {
-    client: {
-      name: client.name,
-      email: client.email,
-      address: client.address,
-      phone: client.phone,
-      company: client.company,
-    },
-    business: {
-      name: user.bizName,
-      address: user.bizAddress,
-      phone: user.bizPhone,
-      website: user.bizWebsite,
-      email: user.email,
-      currency: user.currency,
-    },
-  };
+  const snapshotData = buildSnapshot(client, user);
 
   // ── Create Invoice + LineItems in a transaction ───────────────────────────
   const invoice = await prisma.$transaction(async (tx) => {
@@ -372,23 +398,7 @@ export async function sendInvoice(id: string, userId: string) {
   const viewToken = crypto.randomUUID();
 
   // Take snapshot
-  const snapshotData = {
-    client: {
-      name: invoice.client.name,
-      email: invoice.client.email,
-      address: invoice.client.address,
-      phone: invoice.client.phone,
-      company: invoice.client.company,
-    },
-    business: {
-      name: invoice.user.bizName,
-      address: invoice.user.bizAddress,
-      phone: invoice.user.bizPhone,
-      website: invoice.user.bizWebsite,
-      email: invoice.user.email,
-      currency: invoice.user.currency,
-    },
-  };
+  const snapshotData = buildSnapshot(invoice.client, invoice.user);
 
   const viewUrl = `${env.FRONTEND_URL}/invoices/view/${viewToken}`;
 
@@ -438,14 +448,13 @@ export async function markInvoicePaid(id: string, userId: string, paidAt?: Date)
   const invoice = await prisma.invoice.findFirst({ where: { id, userId } });
   if (!invoice) throw AppError.notFound("Invoice");
 
-  const allowed: InvoiceStatus[] = [InvoiceStatus.SENT, InvoiceStatus.VIEWED, InvoiceStatus.OVERDUE];
-  if (!allowed.includes(invoice.status)) {
+  if (!OPEN_STATUSES.includes(invoice.status)) {
     throw AppError.validation("Invoice must be SENT, VIEWED, or OVERDUE to mark as paid.");
   }
 
   return prisma.invoice.update({
     where: { id },
-    data: { status: InvoiceStatus.PAID, paidAt: paidAt ?? new Date() },
+    data: { status: InvoiceStatus.PAID, paidAt: paidAt ?? new Date(), paidVia: "MANUAL" },
     include: { items: true },
   });
 }
@@ -479,7 +488,7 @@ export async function getInvoicePdf(id: string, userId: string): Promise<{ pdf: 
 export async function getPublicInvoice(viewToken: string) {
   const invoice = await prisma.invoice.findFirst({
     where: { viewToken },
-    include: { items: true, user: { select: { readReceipts: true } } },
+    include: { items: true, user: { select: { readReceipts: true, logoUrl: true } } },
   });
   if (!invoice) throw AppError.notFound("Invoice");
 
@@ -492,10 +501,20 @@ export async function getPublicInvoice(viewToken: string) {
     invoice.status = InvoiceStatus.VIEWED;
   }
 
+  // Invoices sent before logos were snapshotted fall back to the live logo
+  const snapshot = (invoice.snapshotData ?? {}) as { business?: Record<string, unknown> };
+  if (snapshot.business && !("logoUrl" in snapshot.business)) {
+    snapshot.business.logoUrl = invoice.user?.logoUrl ?? null;
+  }
+
   // Return minimal public data only (snapshotData + line items, no userId etc.)
   return {
     number: invoice.number,
     status: invoice.status,
+    paidAt: invoice.paidAt,
+    payable: OPEN_STATUSES.includes(invoice.status) && invoice.total > 0 && (features.payments || features.demoPayments),
+    // false → "Pay now" opens the simulated checkout instead of Stripe
+    paymentsLive: features.payments,
     issueDate: invoice.issueDate,
     dueDate: invoice.dueDate,
     currency: invoice.currency,
@@ -504,7 +523,7 @@ export async function getPublicInvoice(viewToken: string) {
     total: invoice.total,
     notes: invoice.notes,
     terms: invoice.terms,
-    snapshotData: invoice.snapshotData,
+    snapshotData: snapshot,
     items: invoice.items,
   };
 }
@@ -533,8 +552,7 @@ export async function sendFollowUp(invoiceId: string, userId: string, input: Sen
   });
   if (!invoice) throw AppError.notFound("Invoice");
 
-  const allowed: InvoiceStatus[] = [InvoiceStatus.SENT, InvoiceStatus.VIEWED, InvoiceStatus.OVERDUE];
-  if (!allowed.includes(invoice.status)) {
+  if (!OPEN_STATUSES.includes(invoice.status)) {
     throw AppError.validation("Follow-ups can only be sent for SENT, VIEWED or OVERDUE invoices.");
   }
 
@@ -550,4 +568,184 @@ export async function sendFollowUp(invoiceId: string, userId: string, input: Sen
   return prisma.followUp.create({
     data: { invoiceId, method: "EMAIL", notes: input.subject },
   });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DUPLICATE / EXPORT
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Copy an invoice into a fresh DRAFT dated today, keeping its payment window. */
+export async function duplicateInvoice(id: string, userId: string) {
+  const source = await prisma.invoice.findFirst({
+    where: { id, userId },
+    include: { items: { orderBy: { createdAt: "asc" } } },
+  });
+  if (!source) throw AppError.notFound("Invoice");
+
+  const termDays = Math.round((source.dueDate.getTime() - source.issueDate.getTime()) / 86_400_000);
+  const dueDate = new Date(Date.now() + (termDays > 0 ? termDays : 14) * 86_400_000);
+
+  return createInvoice({
+    userId,
+    clientId: source.clientId,
+    dueDate,
+    currency: source.currency,
+    lineItems: source.items.map(({ description, quantity, unitPrice, taxPct }) => ({
+      description,
+      quantity,
+      unitPrice,
+      taxPct,
+    })),
+    notes: source.notes ?? undefined,
+    terms: source.terms ?? undefined,
+  });
+}
+
+const CSV_EXPORT_LIMIT = 5000;
+
+/** Quote a CSV cell; a leading = + - @ is neutralised so spreadsheets don't run it as a formula. */
+function csvCell(value: string | number | null | undefined): string {
+  let s = value == null ? "" : String(value);
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+  return /[",\n\r]/.test(s) || s.startsWith("'") ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+export async function exportInvoicesCsv(params: Omit<ListInvoicesParams, "page" | "limit">): Promise<string> {
+  const invoices = await prisma.invoice.findMany({
+    where: invoiceWhere(params),
+    orderBy: { issueDate: "desc" },
+    take: CSV_EXPORT_LIMIT,
+    include: { client: { select: { name: true, email: true } } },
+  });
+
+  const day = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : "");
+  const header = [
+    "Number", "Client", "Client email", "Status", "Issue date", "Due date",
+    "Currency", "Subtotal", "Tax", "Total", "Sent", "Paid", "Paid via",
+  ];
+  const rows = invoices.map((inv) => [
+    inv.number, inv.client.name, inv.client.email, inv.status, day(inv.issueDate), day(inv.dueDate),
+    inv.currency, inv.subtotal.toFixed(2), inv.taxAmount.toFixed(2), inv.total.toFixed(2),
+    day(inv.sentAt), day(inv.paidAt), inv.paidVia,
+  ]);
+
+  return [header, ...rows].map((r) => r.map(csvCell).join(",")).join("\r\n") + "\r\n";
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CLIENT PAYMENTS ("Pay now" on the public invoice page)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Stripe amounts are in the currency's minor unit; these have none
+const ZERO_DECIMAL = new Set([
+  "BIF", "CLP", "DJF", "GNF", "JPY", "KMF", "KRW", "MGA", "PYG", "RWF", "UGX", "VND", "VUV", "XAF", "XOF", "XPF",
+]);
+
+function toMinorUnits(amount: number, currency: string): number {
+  return Math.round(ZERO_DECIMAL.has(currency.toUpperCase()) ? amount : amount * 100);
+}
+
+async function findPayableInvoice(viewToken: string) {
+  const invoice = await prisma.invoice.findFirst({
+    where: { viewToken },
+    include: { client: true, user: { select: { bizName: true, email: true } } },
+  });
+  if (!invoice) throw AppError.notFound("Invoice");
+  if (invoice.status === InvoiceStatus.PAID) throw AppError.conflict("This invoice has already been paid.");
+  if (!OPEN_STATUSES.includes(invoice.status) || invoice.total <= 0) {
+    throw AppError.validation("This invoice can't be paid online.");
+  }
+  return invoice;
+}
+
+/**
+ * Start a client payment. Returns the URL to send the browser to: a Stripe
+ * Checkout page, or the simulated checkout when Stripe isn't configured.
+ */
+export async function createInvoicePayment(viewToken: string): Promise<string> {
+  const invoice = await findPayableInvoice(viewToken);
+  const backTo = `${env.FRONTEND_URL}/invoices/view/${viewToken}`;
+
+  if (!features.payments) {
+    if (!features.demoPayments) throw AppError.serviceUnavailable("Online payments are not enabled.");
+    return `${backTo}/checkout`;
+  }
+
+  const session = await getStripe().checkout.sessions.create({
+    mode: "payment",
+    customer_email: invoice.client.email,
+    line_items: [{
+      quantity: 1,
+      price_data: {
+        currency: invoice.currency.toLowerCase(),
+        unit_amount: toMinorUnits(invoice.total, invoice.currency),
+        product_data: {
+          name: `Invoice ${invoice.number}`,
+          description: `From ${invoice.user.bizName ?? invoice.user.email}`,
+        },
+      },
+    }],
+    // Fulfilment happens in the webhook — these pages only show the outcome
+    success_url: `${backTo}?payment=success`,
+    cancel_url:  `${backTo}?payment=cancel`,
+    metadata: { kind: "invoice_payment", invoiceId: invoice.id },
+    payment_intent_data: { metadata: { invoiceId: invoice.id } },
+  });
+  if (!session.url) throw AppError.internal("Stripe did not return a checkout URL.");
+
+  await prisma.invoice.update({
+    where: { id: invoice.id },
+    data: { stripeCheckoutSessionId: session.id },
+  });
+  return session.url;
+}
+
+/** Simulated checkout (no Stripe key): settles the invoice as paid via DEMO. */
+export async function completeDemoPayment(viewToken: string) {
+  if (features.payments || !features.demoPayments) {
+    throw AppError.notFound("Route");
+  }
+  const invoice = await findPayableInvoice(viewToken);
+  await settleInvoicePayment(invoice.id, "DEMO");
+  return { status: InvoiceStatus.PAID };
+}
+
+/**
+ * Mark an invoice PAID after a successful online payment and tell its owner.
+ * Idempotent: Stripe retries webhooks, and only the first call changes anything.
+ */
+export async function settleInvoicePayment(invoiceId: string, via: "STRIPE" | "DEMO", sessionId?: string) {
+  const { count } = await prisma.invoice.updateMany({
+    where: { id: invoiceId, status: { in: OPEN_STATUSES } },
+    data: {
+      status: InvoiceStatus.PAID,
+      paidAt: new Date(),
+      paidVia: via,
+      ...(sessionId ? { stripeCheckoutSessionId: sessionId } : {}),
+    },
+  });
+  if (count === 0) return;
+
+  const invoice = await prisma.invoice.findUnique({
+    where: { id: invoiceId },
+    include: { client: { select: { name: true } }, user: { select: { email: true } } },
+  });
+  if (!invoice) return;
+
+  try {
+    await sendMail({
+      to: invoice.user.email,
+      subject: `Payment received: ${invoice.client.name} paid invoice ${invoice.number}`,
+      html: paymentReceivedEmailHtml({
+        number: invoice.number,
+        clientName: invoice.client.name,
+        total: invoice.total,
+        currency: invoice.currency,
+        invoiceUrl: `${env.FRONTEND_URL}/invoices/${invoice.id}`,
+      }),
+    });
+  } catch (err) {
+    // The payment is recorded either way; a missed notification isn't worth a retry storm
+    console.error("[invoice.service] Payment notification failed:", err);
+  }
 }

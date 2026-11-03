@@ -5,6 +5,7 @@ import { env }       from "./config/env";
 import prisma        from "./lib/prisma";
 import { startOverdueJob }             from "./jobs/overdue.job";
 import { startResetMonthlyUsageJob }   from "./jobs/reset-monthly-usage.job";
+import { startRemindersJob }           from "./jobs/reminders.job";
 
 async function main() {
   // Validate DB connection on startup
@@ -14,6 +15,7 @@ async function main() {
   // Start cron jobs
   startOverdueJob();
   startResetMonthlyUsageJob();
+  startRemindersJob();
 
   const app = createApp();
   const server = app.listen(env.PORT, () => {

@@ -18,6 +18,10 @@ import {
   getFollowUps as svcGetFollowUps,
   sendFollowUp as svcSendFollowUp,
   getPublicInvoice as svcGetPublicInvoice,
+  duplicateInvoice as svcDuplicateInvoice,
+  exportInvoicesCsv as svcExportInvoicesCsv,
+  createInvoicePayment as svcCreateInvoicePayment,
+  completeDemoPayment as svcCompleteDemoPayment,
 } from "../services/invoice.service";
 import { AppError } from "../lib/errors";
 
@@ -54,6 +58,8 @@ const listQuerySchema = z.object({
   clientId: z.string().optional(),
   search: z.string().trim().max(100).optional(),
 });
+
+const exportQuerySchema = listQuerySchema.omit({ page: true, limit: true });
 
 const markPaidSchema = z.object({
   paidAt: z.coerce.date().optional(),
@@ -221,6 +227,54 @@ export async function getPublicInvoice(req: Request, res: Response, next: NextFu
     const token = String(req.params.token);
     const data = await svcGetPublicInvoice(token);
     res.json(data);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function duplicateInvoice(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const userId = getUserId(req);
+    const invoice = await svcDuplicateInvoice(getParam(req, "id"), userId);
+    res.status(201).json(invoice);
+  } catch (err) {
+    next(err);
+  }
+}
+
+/** GET /v1/invoices/export.csv — same filters as the list, every page */
+export async function exportCsv(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const userId = getUserId(req);
+    const query = exportQuerySchema.safeParse(req.query);
+    if (!query.success) {
+      return next(AppError.validation("Invalid query", query.error.flatten()));
+    }
+    const csv = await svcExportInvoicesCsv({ userId, ...query.data });
+    const stamp = new Date().toISOString().slice(0, 10);
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="invoices-${stamp}.csv"`);
+    // BOM so Excel opens UTF-8 (accents, currency symbols) correctly
+    res.send("\uFEFF" + csv);
+  } catch (err) {
+    next(err);
+  }
+}
+
+/** Public — POST /v1/invoices/view/:token/pay → { url } to redirect the client to */
+export async function payPublicInvoice(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const url = await svcCreateInvoicePayment(String(req.params.token));
+    res.json({ url });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/** Public — POST /v1/invoices/view/:token/demo-pay (only without Stripe keys) */
+export async function demoPayPublicInvoice(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    res.json(await svcCompleteDemoPayment(String(req.params.token)));
   } catch (err) {
     next(err);
   }

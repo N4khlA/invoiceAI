@@ -36,6 +36,7 @@ function safeUser(user: {
   currency: string;
   aiTone: string;
   readReceipts: boolean;
+  autoReminders: boolean;
   createdAt: Date;
 }) {
   return {
@@ -48,6 +49,7 @@ function safeUser(user: {
     currency: user.currency,
     aiTone: user.aiTone,
     readReceipts: user.readReceipts,
+    autoReminders: user.autoReminders,
     createdAt: user.createdAt,
   };
 }

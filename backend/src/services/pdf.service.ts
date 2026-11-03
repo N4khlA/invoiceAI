@@ -24,6 +24,7 @@ interface SnapshotBusiness {
   website?: string | null;
   email?: string | null;
   currency?: string | null;
+  logoUrl?: string | null;
 }
 
 interface Snapshot {
@@ -48,6 +49,7 @@ interface LiveUser {
   bizPhone?: string | null;
   bizWebsite?: string | null;
   currency?: string;
+  logoUrl?: string | null;
 }
 
 export interface PdfLineItem {
@@ -124,6 +126,7 @@ function resolveDisplay(invoice: PdfInvoiceInput): {
   bizPhone: string | null;
   bizEmail: string | null;
   bizWebsite: string | null;
+  logo: string | null;
   clientName: string;
   clientEmail: string | null;
   clientAddress: string | null;
@@ -141,6 +144,8 @@ function resolveDisplay(invoice: PdfInvoiceInput): {
     bizPhone:     sb.phone     ?? lu?.bizPhone    ?? null,
     bizEmail:     sb.email     ?? lu?.email       ?? null,
     bizWebsite:   sb.website   ?? lu?.bizWebsite  ?? null,
+    // Only uploaded (inline) logos: the renderer never fetches remote URLs
+    logo:         [sb.logoUrl, lu?.logoUrl].find((u) => u?.startsWith("data:image/")) ?? null,
     clientName:   sc.name      ?? lr?.name        ?? "Client",
     clientEmail:  sc.email     ?? lr?.email       ?? null,
     clientAddress: sc.address  ?? lr?.address     ?? null,
@@ -195,6 +200,7 @@ function buildHtml(invoice: PdfInvoiceInput): string {
     <!-- Header -->
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:48px">
       <div>
+        ${d.logo ? `<img src="${esc(d.logo)}" alt="" style="display:block;max-height:56px;max-width:200px;object-fit:contain;margin:0 0 14px">` : ""}
         <h1 style="font-size:22px;font-weight:700;color:#111827;margin:0 0 4px">${esc(d.bizName)}</h1>
         ${d.bizAddress ? `<p style="font-size:13px;color:#6b7280;margin:0 0 2px;white-space:pre-wrap">${esc(d.bizAddress)}</p>` : ""}
         ${d.bizPhone   ? `<p style="font-size:13px;color:#6b7280;margin:0 0 2px">${esc(d.bizPhone)}</p>` : ""}
@@ -294,6 +300,13 @@ export async function generateInvoicePdf(invoice: PdfInvoiceInput): Promise<Buff
     });
 
     const page = await browser.newPage();
+    // Everything is inline; block any network fetch so user-supplied content
+    // can never make the server request internal URLs
+    await page.setRequestInterception(true);
+    page.on("request", (req) => {
+      if (req.url().startsWith("data:")) void req.continue();
+      else void req.abort();
+    });
     await page.setContent(buildHtml(invoice), { waitUntil: "networkidle0" });
 
     const pdfUint8 = await page.pdf({

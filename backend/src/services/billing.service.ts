@@ -8,15 +8,9 @@ import Stripe from "stripe";
 import { Plan } from "@prisma/client";
 import prisma from "../lib/prisma";
 import { AppError } from "../lib/errors";
+import { getStripe } from "../lib/stripe";
 import { env, features } from "../config/env";
-
-let _stripe: Stripe | null = null;
-function getStripe(): Stripe {
-  if (!_stripe) {
-    _stripe = new Stripe(env.STRIPE_SECRET_KEY ?? "", { apiVersion: "2026-02-25.clover" });
-  }
-  return _stripe;
-}
+import { settleInvoicePayment } from "./invoice.service";
 
 // ── Plan helpers ─────────────────────────────────────────────────────────────
 
@@ -61,7 +55,6 @@ export async function createCheckoutSession(userId: string): Promise<string> {
 
   const session = await stripe.checkout.sessions.create({
     customer:             customerId,
-    payment_method_types: ["card"],
     mode:                 "subscription",
     line_items: [{ price: env.STRIPE_PRO_PRICE_ID, quantity: 1 }],
     success_url: `${env.FRONTEND_URL}/billing?checkout=success`,
@@ -112,7 +105,7 @@ export async function createPortalSession(userId: string): Promise<string> {
  * rawBody MUST be the original Buffer from express.raw().
  */
 export async function handleWebhook(rawBody: Buffer, signature: string): Promise<void> {
-  if (!features.billing || !env.STRIPE_WEBHOOK_SECRET) {
+  if (!features.payments || !env.STRIPE_WEBHOOK_SECRET) {
     throw AppError.serviceUnavailable("Stripe is not configured.");
   }
   const stripe = getStripe();
@@ -127,8 +120,23 @@ export async function handleWebhook(rawBody: Buffer, signature: string): Promise
 
   try {
     switch (event.type) {
+      // Client paid an invoice via "Pay now". Card payments arrive as
+      // completed+paid; delayed methods (bank debits) complete "unpaid" and
+      // settle later with async_payment_succeeded.
+      case "checkout.session.async_payment_succeeded":
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
+
+        if (session.metadata?.kind === "invoice_payment") {
+          const invoiceId = session.metadata.invoiceId;
+          if (invoiceId && session.payment_status !== "unpaid") {
+            await settleInvoicePayment(invoiceId, "STRIPE", session.id);
+            console.log(`[billing.service] Invoice ${invoiceId} paid via Stripe`);
+          }
+          break;
+        }
+
+        if (event.type !== "checkout.session.completed") break;
         if (!session.subscription || !session.customer) break;
 
         const userId = session.metadata?.userId;

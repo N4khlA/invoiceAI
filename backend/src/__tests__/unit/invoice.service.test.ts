@@ -63,7 +63,7 @@ describe("Invoice Service", () => {
     it("calculates totals server-side correctly", async () => {
       (prisma.user.findUniqueOrThrow as jest.Mock).mockResolvedValue(mockUser);
       (prisma.client.findFirst as jest.Mock).mockResolvedValue(mockClient);
-      (prisma.invoice.count as jest.Mock).mockResolvedValue(0);
+      (prisma.invoice.findMany as jest.Mock).mockResolvedValue([]);
       mockTransaction();
       (prisma.invoice.create as jest.Mock).mockResolvedValue({ id: "inv-1", items: [] });
 
@@ -86,7 +86,11 @@ describe("Invoice Service", () => {
     it("auto-generates invoice number in INV-NNNN format", async () => {
       (prisma.user.findUniqueOrThrow as jest.Mock).mockResolvedValue(mockUser);
       (prisma.client.findFirst as jest.Mock).mockResolvedValue(mockClient);
-      (prisma.invoice.count as jest.Mock).mockResolvedValue(42); // existing = 42 → next = 43
+      // Highest existing number wins, not the count: a deleted draft leaves a
+      // gap, and counting would hand out INV-0003 again
+      (prisma.invoice.findMany as jest.Mock).mockResolvedValue([
+        { number: "INV-0001" }, { number: "INV-0042" }, { number: "INV-0003" },
+      ]);
       mockTransaction();
       (prisma.invoice.create as jest.Mock).mockResolvedValue({ id: "inv-1", items: [] });
 
@@ -101,10 +105,23 @@ describe("Invoice Service", () => {
       expect(createCall.data.number).toBe("INV-0043");
     });
 
+    it("starts at INV-0001 for a user with no invoices", async () => {
+      (prisma.user.findUniqueOrThrow as jest.Mock).mockResolvedValue(mockUser);
+      (prisma.client.findFirst as jest.Mock).mockResolvedValue(mockClient);
+      (prisma.invoice.findMany as jest.Mock).mockResolvedValue([]);
+      mockTransaction();
+      (prisma.invoice.create as jest.Mock).mockResolvedValue({ id: "inv-1", items: [] });
+
+      await createInvoice({ userId: "user-1", clientId: "client-1", dueDate: new Date(), lineItems: [] });
+
+      const createCall = (prisma.invoice.create as jest.Mock).mock.calls[0][0];
+      expect(createCall.data.number).toBe("INV-0001");
+    });
+
     it("stores snapshotData containing client and user business info", async () => {
       (prisma.user.findUniqueOrThrow as jest.Mock).mockResolvedValue(mockUser);
       (prisma.client.findFirst as jest.Mock).mockResolvedValue(mockClient);
-      (prisma.invoice.count as jest.Mock).mockResolvedValue(0);
+      (prisma.invoice.findMany as jest.Mock).mockResolvedValue([]);
       mockTransaction();
       (prisma.invoice.create as jest.Mock).mockResolvedValue({ id: "inv-1", items: [] });
 
