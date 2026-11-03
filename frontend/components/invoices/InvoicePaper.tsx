@@ -145,7 +145,7 @@ export function InvoicePaper(props: InvoicePaperProps) {
               <dd>{money(taxAmount)}</dd>
             </div>
             <div className="flex items-baseline justify-between border-t border-slate-200 pt-3">
-              <dt className="font-semibold text-slate-900">Total due</dt>
+              <dt className="font-semibold text-slate-900">{status === "PAID" || status === "VOID" ? "Total" : "Total due"}</dt>
               <dd className="font-display text-2xl font-bold text-slate-900">{money(total)}</dd>
             </div>
           </dl>

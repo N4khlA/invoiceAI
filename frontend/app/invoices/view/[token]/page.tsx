@@ -2,12 +2,12 @@
 
 import { useEffect, useState } from "react";
 import axios from "axios";
-import { AlertTriangle, CheckCircle2, Clock, FileQuestion, Printer } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock, CreditCard, FileQuestion, Lock, Printer, XCircle } from "lucide-react";
 import { BASE_URL } from "@/lib/api";
 import type { PublicInvoiceView } from "@/types";
 import { cn, formatCurrency, formatDate, getDaysOverdue } from "@/lib/formatters";
 import { Logo } from "@/components/Logo";
-import { Button, Skeleton } from "@/components/ui";
+import { Button, Skeleton, toast } from "@/components/ui";
 import { InvoicePaper } from "@/components/invoices/InvoicePaper";
 
 function daysUntil(iso: string) {
@@ -35,8 +35,43 @@ function StatusBanner({ invoice }: { invoice: PublicInvoiceView }) {
       tone="info"
       icon={Clock}
       title={`${total} due ${d <= 0 ? "today" : d === 1 ? "tomorrow" : `in ${d} days`}`}
-      text={`Please pay by ${formatDate(invoice.dueDate)}. Payment details are at the bottom of the invoice.`}
+      text={`Please pay by ${formatDate(invoice.dueDate)}.${invoice.payable ? " You can pay securely online below." : " Payment details are at the bottom of the invoice."}`}
     />
+  );
+}
+
+function PayNow({ invoice, token }: { invoice: PublicInvoiceView; token: string }) {
+  const [loading, setLoading] = useState(false);
+
+  async function pay() {
+    setLoading(true);
+    try {
+      const { data } = await axios.post<{ url: string }>(`${BASE_URL}/invoices/view/${encodeURIComponent(token)}/pay`);
+      window.location.assign(data.url);
+    } catch (err) {
+      setLoading(false);
+      const message = axios.isAxiosError(err) ? (err.response?.data as { error?: { message?: string } })?.error?.message : undefined;
+      toast(message ?? "We couldn't start the payment. Please try again.", "error");
+    }
+  }
+
+  return (
+    <div className="no-print mb-6 flex flex-col gap-4 rounded-xl border border-border bg-card p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-5">
+      <div>
+        <p className="text-sm text-muted-foreground">Amount due</p>
+        <p className="tabular font-display text-2xl font-bold text-foreground">{formatCurrency(invoice.total, invoice.currency)}</p>
+      </div>
+      <div className="flex flex-col items-stretch gap-1.5 sm:items-end">
+        <Button size="lg" onClick={pay} loading={loading} className="w-full sm:w-auto">
+          {!loading && <CreditCard aria-hidden />}
+          Pay now
+        </Button>
+        <p className="flex items-center justify-center gap-1 text-xs text-muted-foreground">
+          <Lock className="size-3" aria-hidden />
+          {invoice.paymentsLive ? "Secure checkout by Stripe" : "Demo checkout: no real card is charged"}
+        </p>
+      </div>
+    </div>
   );
 }
 
@@ -64,11 +99,28 @@ function Banner({ tone, icon: Icon, title, text }: { tone: "success" | "danger" 
 export default function PublicInvoicePage({ params }: { params: { token: string } }) {
   const [invoice, setInvoice] = useState<PublicInvoiceView | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // ?payment=success|cancel when coming back from checkout
+  const [returned, setReturned] = useState<"success" | "cancel" | null>(null);
 
   useEffect(() => {
-    axios
-      .get<PublicInvoiceView>(`${BASE_URL}/invoices/view/${encodeURIComponent(params.token)}`)
-      .then(({ data }) => setInvoice(data))
+    const p = new URLSearchParams(window.location.search).get("payment");
+    if (p === "success" || p === "cancel") setReturned(p);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    let attempts = 0;
+    const load = () =>
+      axios
+        .get<PublicInvoiceView>(`${BASE_URL}/invoices/view/${encodeURIComponent(params.token)}`)
+        .then(({ data }) => {
+          if (cancelled) return;
+          setInvoice(data);
+          // Stripe confirms through a webhook, which can land a moment after the
+          // redirect: poll briefly until the invoice flips to PAID
+          const waiting = new URLSearchParams(window.location.search).get("payment") === "success";
+          if (waiting && data.status !== "PAID" && ++attempts < 8) setTimeout(load, 1500);
+        })
       .catch((err) =>
         setError(
           axios.isAxiosError(err) && err.response?.status === 404
@@ -76,6 +128,10 @@ export default function PublicInvoicePage({ params }: { params: { token: string 
             : "We couldn't load this invoice. Check your connection and try again."
         )
       );
+    void load();
+    return () => {
+      cancelled = true;
+    };
   }, [params.token]);
 
   useEffect(() => {
@@ -100,7 +156,14 @@ export default function PublicInvoicePage({ params }: { params: { token: string 
           </div>
         ) : (
           <>
+            {returned === "success" && invoice.status !== "PAID" && (
+              <Banner tone="info" icon={Clock} title="Payment received, confirming…" text="This usually takes a few seconds. You can safely close this page." />
+            )}
+            {returned === "cancel" && invoice.status !== "PAID" && (
+              <Banner tone="muted" icon={XCircle} title="Payment canceled" text="No money was taken. You can try again whenever you're ready." />
+            )}
             <StatusBanner invoice={invoice} />
+            {invoice.payable && <PayNow invoice={invoice} token={params.token} />}
             <div className="no-print mb-4 flex justify-end">
               <Button variant="outline" size="sm" onClick={() => window.print()}>
                 <Printer aria-hidden />
@@ -121,6 +184,7 @@ export default function PublicInvoicePage({ params }: { params: { token: string 
               terms={invoice.terms}
               business={invoice.snapshotData?.business ?? {}}
               client={invoice.snapshotData?.client ?? {}}
+              logoUrl={invoice.snapshotData?.business?.logoUrl}
             />
           </>
         )}

@@ -16,6 +16,7 @@ export interface UpdateAccountPayload {
   currency?: Currency;
   aiTone?: AiTone;
   readReceipts?: boolean;
+  autoReminders?: boolean;
 }
 
 export interface ChangePasswordPayload {
@@ -66,6 +67,17 @@ export function useAccount(): UseAccountReturn {
 export const accountApi = {
   update: async (payload: UpdateAccountPayload): Promise<AuthUser> => {
     const { data } = await api.patch<AuthUser>("/account", payload);
+    return data;
+  },
+
+  /** PNG/JPEG/WebP data URL, ≤ 512 KB */
+  uploadLogo: async (dataUrl: string): Promise<AuthUser> => {
+    const { data } = await api.put<AuthUser>("/account/logo", { dataUrl });
+    return data;
+  },
+
+  removeLogo: async (): Promise<AuthUser> => {
+    const { data } = await api.delete<AuthUser>("/account/logo");
     return data;
   },
 

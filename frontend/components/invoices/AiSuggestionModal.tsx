@@ -3,10 +3,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { RefreshCw, Send, Sparkles } from "lucide-react";
 import type { AiTone } from "@/types";
-import { extractError } from "@/lib/api";
+import { extractError, isPlanLimitError } from "@/lib/api";
 import { invoiceApi } from "@/hooks/useInvoices";
 import { cn } from "@/lib/formatters";
 import { Button, Field, Input, Modal, Skeleton, Textarea, toast } from "@/components/ui";
+import { UpgradePrompt } from "@/components/billing/UpgradePrompt";
 
 const TONES: { value: AiTone; label: string; hint: string }[] = [
   { value: "FRIENDLY", label: "Friendly", hint: "Warm nudge" },
@@ -31,6 +32,8 @@ export function AiSuggestionModal({ invoiceId, clientEmail, defaultTone = "FRIEN
   const [generating, setGenerating] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // FREE plan: no AI drafts, but they can still write and send their own
+  const [needsPro, setNeedsPro] = useState(false);
 
   const generate = useCallback(
     async (t: AiTone) => {
@@ -41,7 +44,8 @@ export function AiSuggestionModal({ invoiceId, clientEmail, defaultTone = "FRIEN
         setSubject(s.subject);
         setBody(s.body);
       } catch (err) {
-        setError(extractError(err));
+        if (isPlanLimitError(err)) setNeedsPro(true);
+        else setError(extractError(err));
       } finally {
         setGenerating(false);
       }
@@ -84,7 +88,13 @@ export function AiSuggestionModal({ invoiceId, clientEmail, defaultTone = "FRIEN
           Payment reminder
         </span>
       }
-      description={clientEmail ? `Drafted for you — edit anything, then send to ${clientEmail}.` : "Drafted for you — edit anything, then send."}
+      description={
+        needsPro
+          ? `Write a reminder${clientEmail ? ` to ${clientEmail}` : ""}.`
+          : clientEmail
+            ? `Drafted for you — edit anything, then send to ${clientEmail}.`
+            : "Drafted for you — edit anything, then send."
+      }
       className="sm:max-w-xl"
       footer={
         <>
@@ -99,7 +109,8 @@ export function AiSuggestionModal({ invoiceId, clientEmail, defaultTone = "FRIEN
       }
     >
       <div className="space-y-4">
-        <div role="radiogroup" aria-label="Tone" className="grid grid-cols-3 gap-2">
+        {needsPro && <UpgradePrompt feature="AI-drafted reminders" />}
+        <div role="radiogroup" aria-label="Tone" className={cn("grid grid-cols-3 gap-2", needsPro && "hidden")}>
           {TONES.map((t) => (
             <button
               key={t.value}
@@ -146,6 +157,7 @@ export function AiSuggestionModal({ invoiceId, clientEmail, defaultTone = "FRIEN
           type="button"
           onClick={() => generate(tone)}
           disabled={generating}
+          hidden={needsPro}
           className="inline-flex cursor-pointer items-center gap-1.5 text-xs font-medium text-primary hover:underline disabled:opacity-50"
         >
           <RefreshCw className={cn("size-3.5", generating && "animate-spin")} aria-hidden />

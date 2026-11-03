@@ -4,6 +4,7 @@ import {
   BarChart3,
   BellRing,
   Check,
+  CreditCard,
   Eye,
   FileText,
   Link2,
@@ -31,12 +32,17 @@ const FEATURES = [
   {
     icon: Sparkles,
     title: "Reminders that sound like you",
-    text: "Pick friendly, professional or formal. AI drafts the follow-up, you tweak it and hit send.",
+    text: "Pick friendly, professional or formal. AI drafts follow-ups, notes and payment terms, and can chase late payers for you.",
+  },
+  {
+    icon: CreditCard,
+    title: "Get paid by card",
+    text: "Every invoice link has a Pay now button. Clients pay with Stripe and the invoice marks itself paid.",
   },
   {
     icon: BellRing,
-    title: "Overdue, automatically",
-    text: "Unpaid invoices past their due date are flagged every night, so nothing slips through.",
+    title: "Chasing, automatically",
+    text: "Overdue invoices are flagged every night, and Pro emails a polite reminder before and after the due date.",
   },
   {
     icon: BarChart3,
@@ -53,13 +59,13 @@ const FEATURES = [
 const STEPS = [
   { icon: UserPlus, title: "Add your client", text: "Name and email are enough. Save company, address and notes if you like." },
   { icon: Send, title: "Send the invoice", text: "They get an email with a secure link and a PDF. You see when they open it." },
-  { icon: Check, title: "Get paid", text: "Send a reminder in one click if it's late, then mark it paid. Done." },
+  { icon: Check, title: "Get paid", text: "They pay by card from the link. Late? Reminders go out on their own." },
 ];
 
 const FAQ = [
   {
     q: "Is it really free?",
-    a: "Yes. The Free plan includes 5 invoices a month, unlimited clients, AI reminders and client links. Upgrade to Pro only when you need more invoices.",
+    a: "Yes. The Free plan includes 5 invoices a month, unlimited clients, client links with card payments and PDF/CSV export. Pro adds unlimited invoices, AI writing and automatic reminders.",
   },
   {
     q: "Do my clients need an account?",
@@ -67,7 +73,7 @@ const FAQ = [
   },
   {
     q: "Who writes the reminder emails?",
-    a: "InvoiceAI drafts them with AI in the tone you choose, using the invoice details. You always review and edit before anything is sent.",
+    a: "InvoiceAI drafts them with AI in the tone you choose, using the invoice details. Review and send them yourself, or on Pro let automatic reminders go out on schedule (never more than once per stage).",
   },
   {
     q: "Can I try it without signing up?",
@@ -204,8 +210,8 @@ export default function HomePage() {
             </div>
             <div className="mt-12 grid gap-4 md:grid-cols-2">
               {[
-                { name: "Free", price: "$0", cta: "Start free", features: ["5 invoices / month", "Unlimited clients", "AI-written reminders", "Client links & read receipts", "PDF export"], featured: false },
-                { name: "Pro", price: "$12", cta: "Start with Pro", features: ["Unlimited invoices", "Everything in Free", "Cancel anytime"], featured: true },
+                { name: "Free", price: "$0", cta: "Start free", features: ["5 invoices / month", "Unlimited clients", "Client links & card payments", "Read receipts", "PDF & CSV export"], featured: false },
+                { name: "Pro", price: "$12", cta: "Start with Pro", features: ["Unlimited invoices", "AI reminders, notes & terms", "Automatic reminders", "Everything in Free"], featured: true },
               ].map((p) => (
                 <div key={p.name} className={`relative flex flex-col rounded-2xl border bg-card p-7 shadow-card ${p.featured ? "border-primary/50 ring-1 ring-primary/20" : "border-border"}`}>
                   {p.featured && <span className="absolute right-6 top-6 rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary">Most popular</span>}

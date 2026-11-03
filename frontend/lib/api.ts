@@ -174,3 +174,8 @@ export function extractError(error: unknown): string {
   if (error instanceof Error) return error.message;
   return "An unexpected error occurred";
 }
+
+/** 402 PLAN_LIMIT_REACHED — the action needs the PRO plan */
+export function isPlanLimitError(error: unknown): boolean {
+  return axios.isAxiosError(error) && error.response?.status === 402;
+}

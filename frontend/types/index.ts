@@ -46,6 +46,8 @@ export interface AuthUser {
   currency: Currency;
   aiTone: AiTone;
   readReceipts: boolean;
+  /** Automatic payment reminders (PRO) */
+  autoReminders: boolean;
   plan: Plan;
   subscriptionStatus?: string | null;
   invoicesThisMonth?: number;
@@ -150,6 +152,8 @@ export interface Invoice {
   viewedAt?: string | null;
   paidAt?: string | null;
   voidedAt?: string | null;
+  /** How it was settled: MANUAL, STRIPE (client paid online) or DEMO */
+  paidVia?: "MANUAL" | "STRIPE" | "DEMO" | null;
   createdAt: string;
   updatedAt: string;
   items: LineItem[];
@@ -172,6 +176,7 @@ export interface InvoiceSnapshot {
     website?: string | null;
     email: string;
     currency: string;
+    logoUrl?: string | null;
   };
 }
 
@@ -199,9 +204,16 @@ export interface FollowUp {
   id: string;
   invoiceId: string;
   sentAt: string;
-  /** "EMAIL" | "MANUAL" */
+  /** "EMAIL" (sent by you) | "MANUAL" | "AUTO" (automatic reminder) */
   method: string;
   notes?: string | null;
+  /** Set on automatic reminders: "before-3" | "due" | "after-7" | "after-14" */
+  reminderKey?: string | null;
+}
+
+/** Response of POST /ai/invoice-text */
+export interface AiInvoiceText {
+  text: string;
 }
 
 /** Response of POST /ai/follow-up */
@@ -258,6 +270,11 @@ export interface BillingStatus {
 export interface PublicInvoiceView {
   number: string;
   status: InvoiceStatus;
+  paidAt?: string | null;
+  /** Open and online payment is available → show "Pay now" */
+  payable: boolean;
+  /** false → "Pay now" opens the simulated checkout (no Stripe keys) */
+  paymentsLive: boolean;
   issueDate: string;
   dueDate: string;
   currency: string;

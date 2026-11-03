@@ -19,7 +19,12 @@ function buildSteps(invoice: Invoice): Step[] {
   ];
   if (s === "OVERDUE") steps.push({ label: "Past due date", date: invoice.dueDate, done: true, tone: "danger" });
   if (s === "VOID") steps.push({ label: "Voided", date: invoice.voidedAt ?? invoice.updatedAt, done: true, tone: "muted" });
-  else steps.push({ label: "Paid", date: invoice.paidAt, done: s === "PAID" });
+  else
+    steps.push({
+      label: invoice.paidVia === "STRIPE" || invoice.paidVia === "DEMO" ? "Paid online by client" : "Paid",
+      date: invoice.paidAt,
+      done: s === "PAID",
+    });
   return steps;
 }
 

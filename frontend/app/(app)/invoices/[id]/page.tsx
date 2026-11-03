@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { Ban, CheckCircle2, Copy, Download, ExternalLink, Pencil, Printer, Send, Sparkles, Trash2 } from "lucide-react";
+import { Ban, CheckCircle2, Copy, CopyPlus, Download, ExternalLink, Pencil, Printer, Send, Sparkles, Trash2 } from "lucide-react";
 import { useInvoice, useFollowUps, invoiceApi } from "@/hooks/useInvoices";
 import { useAuthStore } from "@/store/authStore";
 import { extractError } from "@/lib/api";
@@ -129,7 +129,18 @@ export default function InvoiceDetailPage() {
     }
   };
 
+  const duplicate = async () => {
+    try {
+      const copy = await invoiceApi.duplicate(id);
+      toast(`Copied to draft ${copy.number}`);
+      router.push(`/invoices/${copy.id}/edit`);
+    } catch (err) {
+      toast(extractError(err), "error");
+    }
+  };
+
   const menu: MenuItem[] = [
+    { label: "Duplicate", icon: CopyPlus, onSelect: () => void duplicate() },
     { label: "Print", icon: Printer, onSelect: () => window.print() },
     ...(invoice.status !== "DRAFT" && publicUrl
       ? [{ label: "Open client view", icon: ExternalLink, onSelect: () => window.open(publicUrl, "_blank", "noopener") }]
@@ -222,7 +233,7 @@ export default function InvoiceDetailPage() {
           terms={invoice.terms}
           business={business}
           client={client}
-          logoUrl={user?.logoUrl}
+          logoUrl={invoice.status === "DRAFT" ? user?.logoUrl : (snapshot?.business?.logoUrl ?? user?.logoUrl)}
         />
 
         <div className="no-print space-y-6">
@@ -253,7 +264,18 @@ export default function InvoiceDetailPage() {
 
           {invoice.status !== "DRAFT" && (
             <Card>
-              <CardHeader title="Reminders" />
+              <CardHeader
+                title="Reminders"
+                description={
+                  !isOpen
+                    ? undefined
+                    : user?.plan === "PRO" && user.autoReminders
+                      ? "Automatic reminders are on."
+                      : user?.plan === "PRO"
+                        ? "Automatic reminders are off in Settings."
+                        : "Pro sends reminders automatically."
+                }
+              />
               <div className="p-5">
                 <FollowUpPanel followUps={followUps} isLoading={followUpsLoading} />
               </div>

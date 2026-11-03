@@ -17,14 +17,14 @@ const PLANS = [
     name: "Free",
     price: "$0",
     blurb: "For getting started",
-    features: ["5 invoices per month", "Unlimited clients", "AI-written reminders", "Client view links & read receipts", "PDF export"],
+    features: ["5 invoices per month", "Unlimited clients", "Client links & read receipts", "Online card payments", "PDF & CSV export"],
   },
   {
     id: "PRO" as const,
     name: "Pro",
     price: "$12",
     blurb: "For busy freelancers",
-    features: ["Unlimited invoices", "Everything in Free", "Cancel anytime"],
+    features: ["Unlimited invoices", "AI-written reminders, notes & terms", "Automatic payment reminders", "Everything in Free"],
   },
 ];
 
@@ -88,7 +88,7 @@ function BillingContent() {
     const checkout = params.get("checkout");
     const portal = params.get("portal");
     if (!checkout && !portal) return;
-    if (checkout === "success" || checkout === "demo") toast("Welcome to Pro! Unlimited invoices unlocked.");
+    if (checkout === "success" || checkout === "demo") toast("Welcome to Pro! AI writing and automatic reminders are on.");
     else if (checkout === "cancel") toast("Checkout cancelled — you're still on Free.", "info");
     else if (portal === "demo") toast("Demo mode: subscription cancelled, back on Free.", "info");
     router.replace("/billing");
@@ -130,7 +130,7 @@ function BillingContent() {
                     )}
                   </p>
                   {isPro ? (
-                    <p className="text-sm text-muted-foreground">Unlimited invoices · $12/month</p>
+                    <p className="text-sm text-muted-foreground">Unlimited invoices, AI writing & automatic reminders · $12/month</p>
                   ) : (
                     <div className="mt-3 max-w-sm">
                       <UsageMeter used={status.invoicesThisMonth} />

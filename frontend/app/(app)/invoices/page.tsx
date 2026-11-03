@@ -2,12 +2,12 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { FileText, Plus, SearchX } from "lucide-react";
-import { useInvoices } from "@/hooks/useInvoices";
+import { Download, FileText, Plus, SearchX } from "lucide-react";
+import { invoiceApi, useInvoices } from "@/hooks/useInvoices";
 import { useDebounce } from "@/hooks/useDebounce";
 import { InvoiceStatus } from "@/types";
 import { cn } from "@/lib/formatters";
-import { Button, Card, EmptyState, ErrorState, Page, PageHeader, Pagination, SearchInput, STATUS_LABELS } from "@/components/ui";
+import { Button, Card, EmptyState, ErrorState, Page, PageHeader, Pagination, SearchInput, STATUS_LABELS, toast } from "@/components/ui";
 import { InvoiceTable } from "@/components/invoices/InvoiceTable";
 
 const FILTERS: Array<InvoiceStatus | undefined> = [undefined, "DRAFT", "SENT", "VIEWED", "OVERDUE", "PAID", "VOID"];
@@ -29,6 +29,25 @@ export default function InvoicesPage() {
   });
 
   const filtered = Boolean(debouncedSearch || status);
+  const [exporting, setExporting] = useState(false);
+
+  // Exports every invoice matching the current filters, not just this page
+  const exportCsv = async () => {
+    setExporting(true);
+    try {
+      const blob = await invoiceApi.exportCsv({ status, search: debouncedSearch || undefined });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `invoices-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast("Couldn't export right now. Please try again.", "error");
+    } finally {
+      setExporting(false);
+    }
+  };
 
   return (
     <Page>
@@ -36,12 +55,18 @@ export default function InvoicesPage() {
         title="Invoices"
         description={isLoading ? "Loading…" : `${total} ${filtered ? "matching" : "in total"}`}
         actions={
-          <Button asChild>
-            <Link href="/invoices/new">
-              <Plus aria-hidden />
-              New invoice
-            </Link>
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={exportCsv} loading={exporting} disabled={total === 0}>
+              {!exporting && <Download aria-hidden />}
+              Export CSV
+            </Button>
+            <Button asChild>
+              <Link href="/invoices/new">
+                <Plus aria-hidden />
+                New invoice
+              </Link>
+            </Button>
+          </div>
         }
       />
 

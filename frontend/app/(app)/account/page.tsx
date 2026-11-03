@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ImageOff } from "lucide-react";
+import { BellRing, ImageOff, ImageUp, Trash2 } from "lucide-react";
+import Link from "next/link";
 import { useTheme } from "next-themes";
 import { accountApi, useAccount } from "@/hooks/useAccount";
 import { useAuthStore } from "@/store/authStore";
@@ -13,6 +14,96 @@ import { CURRENCIES, cn } from "@/lib/formatters";
 import type { AiTone, AuthUser, Currency } from "@/types";
 import { Button, Card, CardHeader, ErrorState, Field, Input, Page, PageHeader, Select, Skeleton, Textarea, ThemeToggle, toast } from "@/components/ui";
 import { FormError, PasswordChecklist, PasswordInput } from "@/components/auth/PasswordInput";
+
+const LOGO_TYPES = ["image/png", "image/jpeg", "image/webp"];
+const LOGO_MAX_BYTES = 512 * 1024;
+
+function readAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+function LogoUploader({ account, onSaved }: { account: AuthUser; onSaved: (u: AuthUser) => void }) {
+  const input = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState<"upload" | "remove" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [broken, setBroken] = useState(false);
+  useEffect(() => setBroken(false), [account.logoUrl]);
+
+  const upload = async (file: File | undefined) => {
+    if (!file) return;
+    setError(null);
+    if (!LOGO_TYPES.includes(file.type)) return setError("Use a PNG, JPEG or WebP image.");
+    if (file.size > LOGO_MAX_BYTES) return setError("That image is over 512 KB. Try a smaller export.");
+    setBusy("upload");
+    try {
+      onSaved(await accountApi.uploadLogo(await readAsDataUrl(file)));
+      toast("Logo updated");
+    } catch (err) {
+      setError(extractError(err));
+    } finally {
+      setBusy(null);
+      if (input.current) input.current.value = "";
+    }
+  };
+
+  const remove = async () => {
+    setBusy("remove");
+    try {
+      onSaved(await accountApi.removeLogo());
+      toast("Logo removed");
+    } catch (err) {
+      toast(extractError(err), "error");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="sm:col-span-2">
+      <p id="logo-label" className="text-sm font-medium text-foreground">Logo</p>
+      <div className="mt-1.5 flex flex-wrap items-center gap-4">
+        <div className="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-border bg-white">
+          {account.logoUrl && !broken ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={account.logoUrl} alt="Current logo" className="size-full object-contain p-1.5" onError={() => setBroken(true)} />
+          ) : (
+            <ImageOff className="size-5 text-slate-400" aria-label="No logo" />
+          )}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <input
+            ref={input}
+            type="file"
+            accept={LOGO_TYPES.join(",")}
+            className="sr-only"
+            aria-labelledby="logo-label"
+            onChange={(e) => void upload(e.target.files?.[0])}
+          />
+          <Button type="button" variant="outline" size="sm" onClick={() => input.current?.click()} loading={busy === "upload"} disabled={busy !== null}>
+            {busy !== "upload" && <ImageUp aria-hidden />}
+            {account.logoUrl ? "Replace" : "Upload logo"}
+          </Button>
+          {account.logoUrl && (
+            <Button type="button" variant="ghost" size="sm" onClick={remove} loading={busy === "remove"} disabled={busy !== null}>
+              {busy !== "remove" && <Trash2 aria-hidden />}
+              Remove
+            </Button>
+          )}
+        </div>
+      </div>
+      {error ? (
+        <p role="alert" className="mt-1.5 text-xs text-destructive">{error}</p>
+      ) : (
+        <p className="mt-1.5 text-xs text-muted-foreground">PNG, JPEG or WebP, up to 512 KB. Appears on invoices and PDFs.</p>
+      )}
+    </div>
+  );
+}
 
 const TONES: { value: AiTone; label: string; example: string }[] = [
   { value: "FRIENDLY", label: "Friendly", example: "“Hope you're well! Just a quick nudge…”" },
@@ -25,7 +116,6 @@ function BusinessSection({ account, onSaved }: { account: AuthUser; onSaved: (u:
   const {
     register,
     handleSubmit,
-    watch,
     reset,
     formState: { errors, isSubmitting, isDirty },
   } = useForm<BusinessFormValues>({
@@ -36,13 +126,9 @@ function BusinessSection({ account, onSaved }: { account: AuthUser; onSaved: (u:
       bizAddress: account.bizAddress ?? "",
       bizPhone: account.bizPhone ?? "",
       bizWebsite: account.bizWebsite ?? "",
-      logoUrl: account.logoUrl ?? "",
       currency: account.currency ?? "USD",
     },
   });
-  const logoUrl = watch("logoUrl");
-  const [logoBroken, setLogoBroken] = useState(false);
-  useEffect(() => setLogoBroken(false), [logoUrl]);
 
   const onSubmit = async (v: BusinessFormValues) => {
     setServerError(null);
@@ -53,7 +139,6 @@ function BusinessSection({ account, onSaved }: { account: AuthUser; onSaved: (u:
         bizAddress: v.bizAddress ?? "",
         bizPhone: v.bizPhone ?? "",
         bizWebsite: v.bizWebsite ?? "",
-        logoUrl: v.logoUrl ?? "",
         currency: v.currency as Currency,
       });
       onSaved(updated);
@@ -92,22 +177,7 @@ function BusinessSection({ account, onSaved }: { account: AuthUser; onSaved: (u:
               ))}
             </Select>
           </Field>
-          <div className="flex items-end gap-3">
-            <Field label="Logo URL" optional error={errors.logoUrl?.message} hint="Link to a PNG or SVG." className="flex-1">
-              <Input type="url" placeholder="https://…/logo.png" {...register("logoUrl")} />
-            </Field>
-            <div
-              className={cn("mb-[22px] flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-white", errors.logoUrl && "mb-[22px]")}
-              aria-hidden
-            >
-              {logoUrl && !logoBroken ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={logoUrl} alt="" className="size-full object-contain p-1" onError={() => setLogoBroken(true)} />
-              ) : (
-                <ImageOff className="size-4 text-slate-400" />
-              )}
-            </div>
-          </div>
+          <LogoUploader account={account} onSaved={onSaved} />
         </div>
         <div className="flex justify-end">
           <Button type="submit" loading={isSubmitting} disabled={!isDirty}>
@@ -123,7 +193,7 @@ function PreferencesSection({ account, onSaved }: { account: AuthUser; onSaved: 
   const [saving, setSaving] = useState<string | null>(null);
   const { resolvedTheme } = useTheme();
 
-  const save = async (key: string, payload: { aiTone?: AiTone; readReceipts?: boolean }) => {
+  const save = async (key: string, payload: { aiTone?: AiTone; readReceipts?: boolean; autoReminders?: boolean }) => {
     setSaving(key);
     try {
       onSaved(await accountApi.update(payload));
@@ -184,6 +254,40 @@ function PreferencesSection({ account, onSaved }: { account: AuthUser; onSaved: 
             )}
           >
             <span className={cn("inline-block size-5 rounded-full bg-white shadow transition-transform", account.readReceipts ? "translate-x-[22px]" : "translate-x-0.5")} />
+          </button>
+        </div>
+
+        <div className="flex items-center justify-between gap-4 p-5">
+          <div>
+            <p id="ar-label" className="flex items-center gap-2 text-sm font-medium text-foreground">
+              <BellRing className="size-4 text-muted-foreground" aria-hidden />
+              Automatic reminders
+              {account.plan !== "PRO" && <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">Pro</span>}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              {account.plan === "PRO" ? (
+                "Email clients 3 days before the due date, on it, and 7 and 14 days late. Never twice."
+              ) : (
+                <>
+                  Let InvoiceAI chase late payments for you.{" "}
+                  <Link href="/billing" className="font-medium text-primary hover:underline">Upgrade to Pro</Link>
+                </>
+              )}
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={account.plan === "PRO" && account.autoReminders}
+            aria-labelledby="ar-label"
+            disabled={saving === "ar" || account.plan !== "PRO"}
+            onClick={() => save("ar", { autoReminders: !account.autoReminders })}
+            className={cn(
+              "relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-60",
+              account.plan === "PRO" && account.autoReminders ? "bg-primary" : "bg-muted-foreground/30"
+            )}
+          >
+            <span className={cn("inline-block size-5 rounded-full bg-white shadow transition-transform", account.plan === "PRO" && account.autoReminders ? "translate-x-[22px]" : "translate-x-0.5")} />
           </button>
         </div>
 

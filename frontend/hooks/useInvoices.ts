@@ -7,6 +7,7 @@ import {
   PaginatedResponse,
   AiFollowUpSuggestion,
   AiTone,
+  AiInvoiceText,
   FollowUp,
 } from "@/types";
 
@@ -149,6 +150,34 @@ export const invoiceApi = {
       ...(tone ? { tone } : {}),
     });
     return data;
+  },
+
+  duplicate: async (id: string): Promise<Invoice> => {
+    const { data } = await api.post<Invoice>(`/invoices/${id}/duplicate`);
+    return data;
+  },
+
+  /** CSV of every invoice matching the list filters (not just the current page) */
+  exportCsv: async (filters: { status?: string; search?: string } = {}): Promise<Blob> => {
+    const params = new URLSearchParams();
+    if (filters.status) params.set("status", filters.status);
+    if (filters.search) params.set("search", filters.search);
+    const { data } = await api.get<Blob>(`/invoices/export.csv?${params.toString()}`, {
+      responseType: "blob",
+    });
+    return data;
+  },
+
+  // POST /v1/ai/invoice-text — PRO; 402 PLAN_LIMIT_REACHED for FREE users
+  getAiInvoiceText: async (payload: {
+    kind: "notes" | "terms";
+    clientId?: string;
+    items?: string[];
+    dueDate?: string;
+    tone?: AiTone;
+  }): Promise<string> => {
+    const { data } = await api.post<AiInvoiceText>("/ai/invoice-text", payload);
+    return data.text;
   },
 
   sendFollowUp: async (

@@ -120,7 +120,6 @@ export const businessSchema = z.object({
   bizAddress: optionalText(300, "Address is too long"),
   bizPhone: optionalText(40, "Phone number is too long"),
   bizWebsite: z.string().trim().url("Enter a full URL, e.g. https://example.com").optional().or(z.literal("")),
-  logoUrl: z.string().trim().url("Enter a full image URL").optional().or(z.literal("")),
   currency: z.string().length(3),
 });
 

@@ -5,8 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Controller, useFieldArray, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Plus, Send, Trash2, UserPlus } from "lucide-react";
-import { extractError } from "@/lib/api";
+import { Plus, Send, Sparkles, Trash2, Undo2, UserPlus } from "lucide-react";
+import { extractError, isPlanLimitError } from "@/lib/api";
 import { invoiceSchema, InvoiceFormValues } from "@/lib/validations";
 import { useClients } from "@/hooks/useClients";
 import { invoiceApi } from "@/hooks/useInvoices";
@@ -15,6 +15,9 @@ import { CURRENCIES, cn, formatCurrency, toDateInput } from "@/lib/formatters";
 import type { Invoice } from "@/types";
 import { Button, Card, CardHeader, Field, Input, Select, Textarea, toast } from "@/components/ui";
 import { FormError } from "@/components/auth/PasswordInput";
+import { UpgradePrompt } from "@/components/billing/UpgradePrompt";
+
+type AiKind = "notes" | "terms";
 
 const DUE_PRESETS = [
   { label: "On receipt", days: 0 },
@@ -43,6 +46,10 @@ export function InvoiceForm({ invoice, defaultClientId }: InvoiceFormProps) {
   const { clients, isLoading: clientsLoading } = useClients({ limit: 100 });
   const [serverError, setServerError] = useState<string | null>(null);
   const [intent, setIntent] = useState<"save" | "send">("save");
+  const [aiBusy, setAiBusy] = useState<AiKind | null>(null);
+  // What the field held before AI replaced it, so one click puts it back
+  const [aiUndo, setAiUndo] = useState<Partial<Record<AiKind, string>>>({});
+  const [needsPro, setNeedsPro] = useState(user?.plan === "FREE");
   const isEdit = Boolean(invoice);
 
   const today = toDateInput(new Date());
@@ -103,6 +110,49 @@ export function InvoiceForm({ invoice, defaultClientId }: InvoiceFormProps) {
     },
     { sub: 0, tax: 0 }
   );
+
+  const writeWithAi = async (kind: AiKind) => {
+    setAiBusy(kind);
+    try {
+      const text = await invoiceApi.getAiInvoiceText({
+        kind,
+        clientId: watch("clientId") || undefined,
+        items: lineItems.map((i) => i.description.trim()).filter(Boolean),
+        dueDate: dueDate || undefined,
+      });
+      setAiUndo((u) => ({ ...u, [kind]: watch(kind) ?? "" }));
+      setValue(kind, text, { shouldDirty: true, shouldValidate: true });
+    } catch (err) {
+      if (isPlanLimitError(err)) setNeedsPro(true);
+      else toast(extractError(err), "error");
+    } finally {
+      setAiBusy(null);
+    }
+  };
+
+  const aiControls = (kind: AiKind) =>
+    needsPro ? null : (
+      <div className="mt-1.5 flex flex-wrap items-center gap-1">
+        <Button type="button" variant="ghost" size="sm" onClick={() => writeWithAi(kind)} loading={aiBusy === kind} disabled={aiBusy !== null} className="-ml-2 text-primary hover:text-primary">
+          {aiBusy !== kind && <Sparkles aria-hidden />}
+          {watch(kind) ? "Rewrite with AI" : "Write with AI"}
+        </Button>
+        {aiUndo[kind] !== undefined && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setValue(kind, aiUndo[kind] ?? "", { shouldDirty: true });
+              setAiUndo((u) => ({ ...u, [kind]: undefined }));
+            }}
+          >
+            <Undo2 aria-hidden />
+            Undo
+          </Button>
+        )}
+      </div>
+    );
 
   const onSubmit = async (values: InvoiceFormValues) => {
     setServerError(null);
@@ -311,12 +361,19 @@ export function InvoiceForm({ invoice, defaultClientId }: InvoiceFormProps) {
         <Card>
           <CardHeader title="Notes & terms" description="Shown at the bottom of the invoice." />
           <div className="grid grid-cols-1 gap-4 p-5 md:grid-cols-2">
-            <Field label="Notes" optional error={errors.notes?.message}>
-              <Textarea rows={4} placeholder="Thanks for your business!" {...register("notes")} />
-            </Field>
-            <Field label="Payment terms" optional error={errors.terms?.message}>
-              <Textarea rows={4} placeholder="Bank transfer to IBAN … Please include the invoice number." {...register("terms")} />
-            </Field>
+            <div>
+              <Field label="Notes" optional error={errors.notes?.message}>
+                <Textarea rows={4} placeholder="Thanks for your business!" {...register("notes")} />
+              </Field>
+              {aiControls("notes")}
+            </div>
+            <div>
+              <Field label="Payment terms" optional error={errors.terms?.message}>
+                <Textarea rows={4} placeholder="Bank transfer to IBAN … Please include the invoice number." {...register("terms")} />
+              </Field>
+              {aiControls("terms")}
+            </div>
+            {needsPro && <UpgradePrompt feature="Writing notes and terms with AI" className="md:col-span-2" />}
           </div>
         </Card>
       </div>
