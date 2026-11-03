@@ -1,6 +1,9 @@
 # ── Stage 1: Builder ────────────────────────────────────────────────────────
 FROM node:20-alpine AS builder
 
+# Chromium comes from apk in the runner; don't let Puppeteer download its own
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+
 WORKDIR /app
 
 # Copy manifests and install ALL deps (including devDeps for tsc)
@@ -9,7 +12,7 @@ RUN npm ci
 
 # Copy source and compile
 COPY . .
-RUN npx prisma generate
+RUN npx prisma generate --config prisma/config.ts
 RUN npm run build
 
 # ── Stage 2: Production image ────────────────────────────────────────────────
@@ -25,16 +28,17 @@ RUN apk add --no-cache \
     ttf-freefont
 
 # Tell Puppeteer to use the installed Chromium instead of downloading
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+ENV NODE_ENV=production
 
 WORKDIR /app
 
-# Install only production dependencies
+# Production dependencies only (the prisma CLI is one: migrations run on boot)
 COPY package*.json ./
 RUN npm ci --omit=dev
 
-# Copy compiled output and prisma client from builder
+# Copy compiled output and the generated Prisma client from builder
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY prisma ./prisma
@@ -42,4 +46,4 @@ COPY prisma ./prisma
 EXPOSE 3001
 
 # Run migrations then start the server
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/index.js"]
+CMD ["sh", "-c", "npx prisma migrate deploy --config prisma/config.ts && node dist/index.js"]

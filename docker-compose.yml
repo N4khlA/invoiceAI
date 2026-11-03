@@ -1,4 +1,5 @@
-version: '3.8'
+# Full stack: docker compose up --build → http://localhost:3000
+# Works with no API keys (demo mode). Put real keys in backend/.env to go live.
 
 services:
   # ── PostgreSQL database ─────────────────────────────────────
@@ -19,26 +20,39 @@ services:
       timeout: 5s
       retries: 5
 
-  # ── Backend API ─────────────────────────────────────────────
+  # ── Backend API (runs migrations on start) ──────────────────
   backend:
     build:
       context: ./backend
-      dockerfile: Dockerfile
     restart: unless-stopped
     ports:
       - "3001:3001"
     env_file:
-      - ./backend/.env
+      - path: ./backend/.env
+        required: false
     environment:
       DATABASE_URL: postgresql://invoiceai:invoiceai@postgres:5432/invoiceai
-      NODE_ENV: development
+      FRONTEND_URL: http://localhost:3000
+      # Override in backend/.env for anything public: at least 32 random chars
+      JWT_SECRET: ${JWT_SECRET:-change-me-local-only-change-me-local-only}
+      # Simulated "Pay now" while Stripe isn't configured
+      DEMO_PAYMENTS: "true"
     depends_on:
       postgres:
         condition: service_healthy
-    volumes:
-      - ./backend:/app
-      - /app/node_modules
-      - /app/dist
+
+  # ── Frontend (Next.js) ──────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Called from the browser, so this is the host-facing URL
+        NEXT_PUBLIC_API_URL: http://localhost:3001/v1
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
 
 volumes:
   postgres_data:

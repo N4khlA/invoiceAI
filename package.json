@@ -6,7 +6,8 @@
   "scripts": {
     "dev:backend": "npm --prefix backend run dev",
     "dev:frontend": "npm --prefix frontend run dev",
-    "db:setup": "cd backend && npx prisma db push --config prisma/config.ts && npx ts-node prisma/seed.ts",
+    "db:local": "npm --prefix backend run db:local",
+    "db:setup": "cd backend && npx prisma migrate deploy --config prisma/config.ts && npx ts-node prisma/seed.ts",
     "test": "npm --prefix backend test",
     "build": "npm --prefix backend run build && npm --prefix frontend run build"
   },
