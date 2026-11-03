@@ -11,6 +11,19 @@ export const authLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+/**
+ * Session refresh — runs on every page load and new tab, so it can't share
+ * the 10-per-15-min credential limit (users got logged out after a few tabs).
+ * Still bounded: each call needs a valid, single-use refresh cookie anyway.
+ */
+export const refreshLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 120,
+  message: { error: "Too many requests, please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 /** General API limiter for authenticated routes */
 export const apiLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute

@@ -59,6 +59,7 @@ export function InvoiceForm({ invoice, defaultClientId }: InvoiceFormProps) {
     control,
     watch,
     setValue,
+    getValues,
     formState: { errors, isSubmitting, isDirty, isSubmitSuccessful },
   } = useForm<InvoiceFormValues>({
     resolver: zodResolver(invoiceSchema),
@@ -129,7 +130,9 @@ export function InvoiceForm({ invoice, defaultClientId }: InvoiceFormProps) {
         items: lineItems.map((i) => i.description.trim()).filter(Boolean),
         dueDate: dueDate || undefined,
       });
-      setAiUndo((u) => ({ ...u, [kind]: watch(kind) ?? "" }));
+      // Read it now: the updater below runs after setValue has replaced it
+      const previous = getValues(kind) ?? "";
+      setAiUndo((u) => ({ ...u, [kind]: previous }));
       setValue(kind, text, { shouldDirty: true, shouldValidate: true });
     } catch (err) {
       if (isPlanLimitError(err)) setNeedsPro(true);
