@@ -28,7 +28,7 @@ const envSchema = z.object({
   PORT:                       z.coerce.number().default(3001),
   NODE_ENV:                   z.enum(["development", "production", "test"]).default("development"),
   // Simulated "Pay now" checkout when Stripe isn't configured. On by default
-  // outside production; set DEMO_PAYMENTS=true for a public demo deployment.
+  // only for a localhost frontend; set DEMO_PAYMENTS=true for a public demo.
   DEMO_PAYMENTS:              z.enum(["true", "false"]).optional().transform((v) => (v === undefined ? undefined : v === "true")),
 });
 
@@ -53,6 +53,10 @@ export const features = {
   billing: Boolean(env.STRIPE_SECRET_KEY && env.STRIPE_PRO_PRICE_ID),
   // Client "Pay now" goes through Stripe Checkout; without a key it's simulated
   payments: Boolean(env.STRIPE_SECRET_KEY),
-  // Anyone with the invoice link can "pay" in demo mode, so never default it on in production
-  demoPayments: !env.STRIPE_SECRET_KEY && (env.DEMO_PAYMENTS ?? env.NODE_ENV !== "production"),
+  // Anyone with the invoice link can "pay" in demo mode, so it only defaults on
+  // for a local frontend — a deployed one must opt in with DEMO_PAYMENTS=true
+  // (NODE_ENV alone isn't enough: it silently defaults to "development")
+  demoPayments:
+    !env.STRIPE_SECRET_KEY &&
+    (env.DEMO_PAYMENTS ?? (env.NODE_ENV !== "production" && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(env.FRONTEND_URL))),
 };

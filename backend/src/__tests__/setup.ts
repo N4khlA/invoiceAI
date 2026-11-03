@@ -63,6 +63,7 @@ jest.mock("../lib/prisma", () => {
     followUp: {
       findMany: jest.fn(),
       create: jest.fn(),
+      update: jest.fn(),
       delete: jest.fn(),
     },
     $transaction: jest.fn(),
@@ -109,7 +110,7 @@ jest.mock("stripe", () => {
     customers: { create: jest.fn() },
     subscriptions: { create: jest.fn(), cancel: jest.fn() },
     webhooks: { constructEvent: jest.fn() },
-    checkout: { sessions: { create: jest.fn() } },
+    checkout: { sessions: { create: jest.fn(), retrieve: jest.fn() } },
     billingPortal: { sessions: { create: jest.fn() } },
   }));
 });

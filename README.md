@@ -91,7 +91,7 @@ Backend (`backend/.env`, see [`.env.example`](backend/.env.example)):
 | `OPENAI_API_KEY` | no | AI drafts (GPT-4o) instead of templates |
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | no | Real "Pay now" checkout and webhooks |
 | `STRIPE_PRO_PRICE_ID` | no | Monthly Pro price, for real subscriptions |
-| `DEMO_PAYMENTS` | no | `true` keeps the simulated checkout on in production (public demos only) |
+| `DEMO_PAYMENTS` | no | Simulated checkout without Stripe: on by default only for a localhost `FRONTEND_URL`; set `true` for a deployed public demo |
 
 Frontend (`frontend/.env.local`): `NEXT_PUBLIC_API_URL`, e.g. `https://api.example.com/v1`.
 

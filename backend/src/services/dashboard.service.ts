@@ -91,6 +91,7 @@ export async function getDashboardSummary(userId: string) {
       where: { userId },
       orderBy: { createdAt: "desc" },
       take: 5,
+      omit: { snapshotData: true }, // may hold an inline logo
       include: { client: { select: { id: true, name: true, email: true } } },
     }),
 
@@ -98,6 +99,7 @@ export async function getDashboardSummary(userId: string) {
     prisma.invoice.findMany({
       where: { userId, status: InvoiceStatus.OVERDUE },
       orderBy: { dueDate: "asc" },
+      omit: { snapshotData: true },
       include: { client: { select: { name: true } } },
     }),
   ]);

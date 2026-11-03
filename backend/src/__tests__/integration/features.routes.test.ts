@@ -50,6 +50,19 @@ describe("Pay now (public)", () => {
     });
   });
 
+  it("reuses the open session from an earlier click instead of opening a second one", async () => {
+    (prisma.invoice.findFirst as jest.Mock).mockResolvedValue({ ...openInvoice, stripeCheckoutSessionId: "cs_old" });
+    (getStripe().checkout.sessions.retrieve as jest.Mock).mockResolvedValue({
+      id: "cs_old", status: "open", url: "https://checkout.stripe.test/cs_old",
+    });
+
+    const res = await request(app).post("/v1/invoices/view/tok-1/pay");
+
+    expect(res.status).toBe(200);
+    expect(res.body.url).toBe("https://checkout.stripe.test/cs_old");
+    expect(getStripe().checkout.sessions.create).not.toHaveBeenCalled();
+  });
+
   it("does not multiply zero-decimal currencies", async () => {
     (prisma.invoice.findFirst as jest.Mock).mockResolvedValue({ ...openInvoice, currency: "JPY", total: 5000 });
     const create = getStripe().checkout.sessions.create as jest.Mock;
@@ -116,8 +129,31 @@ describe("Stripe webhook — invoice payments", () => {
     expect(prisma.invoice.updateMany).not.toHaveBeenCalled();
   });
 
+  it("alerts the owner when a payment lands on an invoice voided mid-checkout", async () => {
+    (prisma.invoice.updateMany as jest.Mock).mockResolvedValue({ count: 0 });
+    (prisma.invoice.findUnique as jest.Mock).mockResolvedValue({
+      ...openInvoice,
+      status: InvoiceStatus.VOID,
+      user: { email: "me@studio.test" },
+    });
+    const { Resend } = jest.requireMock("resend") as { Resend: { __sendMock: jest.Mock } };
+
+    const res = await sendWebhook({
+      type: "checkout.session.completed",
+      data: { object: { id: "cs_4", payment_status: "paid", metadata: { kind: "invoice_payment", invoiceId: "inv-1" } } },
+    });
+
+    expect(res.status).toBe(200);
+    expect(Resend.__sendMock).toHaveBeenCalledWith(expect.objectContaining({
+      to: "me@studio.test",
+      subject: expect.stringContaining("Action needed"),
+    }));
+  });
+
   it("is idempotent: a retried event changes nothing and sends no second email", async () => {
     (prisma.invoice.updateMany as jest.Mock).mockResolvedValue({ count: 0 });
+    (prisma.invoice.findUnique as jest.Mock).mockResolvedValue({ ...openInvoice, status: InvoiceStatus.PAID, user: { email: "me@studio.test" } });
+    const { Resend } = jest.requireMock("resend") as { Resend: { __sendMock: jest.Mock } };
 
     const res = await sendWebhook({
       type: "checkout.session.async_payment_succeeded",
@@ -125,7 +161,7 @@ describe("Stripe webhook — invoice payments", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(prisma.invoice.findUnique).not.toHaveBeenCalled();
+    expect(Resend.__sendMock).not.toHaveBeenCalled();
   });
 });
 
@@ -158,6 +194,27 @@ describe("Duplicate & CSV export", () => {
     // 30-day window kept, counted from today
     const days = Math.round((data.dueDate.getTime() - Date.now()) / 86_400_000);
     expect(days).toBe(30);
+  });
+
+  it("retries with the next number when a concurrent create took it", async () => {
+    (prisma.user.findUniqueOrThrow as jest.Mock).mockResolvedValue({ id: "user-1", plan: Plan.PRO, invoicesThisMonth: 0, currency: "USD" });
+    (prisma.client.findFirst as jest.Mock).mockResolvedValue({ id: "cl-1", name: "Acme", email: "billing@acme.test" });
+    (prisma.invoice.findMany as jest.Mock)
+      .mockResolvedValueOnce([{ number: "INV-0007" }])
+      .mockResolvedValueOnce([{ number: "INV-0007" }, { number: "INV-0008" }]);
+    (prisma.$transaction as jest.Mock).mockImplementation((fn: (tx: unknown) => unknown) => fn(prisma));
+    const { Prisma } = jest.requireActual("@prisma/client");
+    (prisma.invoice.create as jest.Mock)
+      .mockRejectedValueOnce(new Prisma.PrismaClientKnownRequestError("Unique constraint failed", { code: "P2002", clientVersion: "7" }))
+      .mockImplementationOnce(({ data }) => ({ id: "inv-9", ...data }));
+
+    const res = await request(app)
+      .post("/v1/invoices")
+      .set("Authorization", auth())
+      .send({ clientId: "clxxxxxxxxxxxxxxxxxxxxxxx", dueDate: "2026-12-01", lineItems: [{ description: "Work", quantity: 1, unitPrice: 10 }] });
+
+    expect(res.status).toBe(201);
+    expect(res.body.number).toBe("INV-0009");
   });
 
   it("GET /export.csv returns CSV and neutralises spreadsheet formulas", async () => {

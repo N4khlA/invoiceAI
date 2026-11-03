@@ -206,6 +206,8 @@ export async function listInvoices({ userId, page = 1, limit = 20, status, clien
       skip,
       take: limit,
       orderBy: { createdAt: "desc" },
+      // The snapshot can carry an inline logo (hundreds of KB); lists don't need it
+      omit: { snapshotData: true },
       include: {
         items: true,
         client: { select: { id: true, name: true, email: true } },
@@ -247,8 +249,6 @@ export async function createInvoice(input: CreateInvoiceInput) {
   const client = await prisma.client.findFirst({ where: { id: clientId, userId } });
   if (!client) throw AppError.notFound("Client");
 
-  // ── Auto-generate invoice number ─────────────────────────────────────────
-  const invoiceNumber = await nextInvoiceNumber(userId);
 
   // ── Calculate totals server-side ─────────────────────────────────────────
   let subtotal = 0;
@@ -278,37 +278,49 @@ export async function createInvoice(input: CreateInvoiceInput) {
   const snapshotData = buildSnapshot(client, user);
 
   // ── Create Invoice + LineItems in a transaction ───────────────────────────
-  const invoice = await prisma.$transaction(async (tx) => {
-    const created = await tx.invoice.create({
-      data: {
-        userId,
-        clientId,
-        number: invoiceNumber,
-        issueDate, // undefined → Prisma default (now())
-        currency: currency ?? user.currency, // default to the user's business currency
-        dueDate,
-        subtotal,
-        taxAmount: totalTaxAmount,
-        total,
-        notes,
-        terms,
-        snapshotData,
-        items: {
-          create: computedItems,
+  // Two creates at once (double-clicked Duplicate) can pick the same number:
+  // the unique index rejects one, which then retries with the next number.
+  for (let attempt = 1; ; attempt++) {
+    const invoiceNumber = await nextInvoiceNumber(userId);
+    try {
+      return await insertInvoice(invoiceNumber);
+    } catch (err) {
+      const taken = err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002";
+      if (!taken || attempt >= 3) throw err;
+    }
+  }
+
+  async function insertInvoice(invoiceNumber: string) {
+    return prisma.$transaction(async (tx) => {
+      const created = await tx.invoice.create({
+        data: {
+          userId,
+          clientId,
+          number: invoiceNumber,
+          issueDate, // undefined → Prisma default (now())
+          currency: currency ?? user.currency, // default to the user's business currency
+          dueDate,
+          subtotal,
+          taxAmount: totalTaxAmount,
+          total,
+          notes,
+          terms,
+          snapshotData,
+          items: {
+            create: computedItems,
+          },
         },
-      },
-      include: { items: true },
+        include: { items: true },
+      });
+
+      await tx.user.update({
+        where: { id: userId },
+        data: { invoicesThisMonth: { increment: 1 } },
+      });
+
+      return created;
     });
-
-    await tx.user.update({
-      where: { id: userId },
-      data: { invoicesThisMonth: { increment: 1 } },
-    });
-
-    return created;
-  });
-
-  return invoice;
+  }
 }
 
 export async function getInvoice(id: string, userId: string) {
@@ -671,7 +683,19 @@ export async function createInvoicePayment(viewToken: string): Promise<string> {
     return `${backTo}/checkout`;
   }
 
-  const session = await getStripe().checkout.sessions.create({
+  const stripe = getStripe();
+
+  // Reuse the session from an earlier click: two open sessions would let the
+  // client pay twice (sent invoices can't change, so the amount still holds)
+  if (invoice.stripeCheckoutSessionId) {
+    const previous = await stripe.checkout.sessions.retrieve(invoice.stripeCheckoutSessionId);
+    if (previous.status === "open" && previous.url) return previous.url;
+    if (previous.status === "complete") {
+      throw AppError.conflict("A payment for this invoice is already being processed.");
+    }
+  }
+
+  const session = await stripe.checkout.sessions.create({
     mode: "payment",
     customer_email: invoice.client.email,
     line_items: [{
@@ -724,7 +748,10 @@ export async function settleInvoicePayment(invoiceId: string, via: "STRIPE" | "D
       ...(sessionId ? { stripeCheckoutSessionId: sessionId } : {}),
     },
   });
-  if (count === 0) return;
+  if (count === 0) {
+    if (via === "STRIPE") await flagPaymentOnClosedInvoice(invoiceId);
+    return;
+  }
 
   const invoice = await prisma.invoice.findUnique({
     where: { id: invoiceId },
@@ -747,5 +774,35 @@ export async function settleInvoicePayment(invoiceId: string, via: "STRIPE" | "D
   } catch (err) {
     // The payment is recorded either way; a missed notification isn't worth a retry storm
     console.error("[invoice.service] Payment notification failed:", err);
+  }
+}
+
+/**
+ * Stripe took money for an invoice that was voided while the client was on
+ * the checkout page. Nothing to mark paid — but the owner must refund or
+ * reopen, so make sure they hear about it. (Retried events of an already
+ * PAID invoice land here too and are ignored.)
+ */
+async function flagPaymentOnClosedInvoice(invoiceId: string) {
+  const invoice = await prisma.invoice.findUnique({
+    where: { id: invoiceId },
+    include: { client: { select: { name: true } }, user: { select: { email: true } } },
+  });
+  if (!invoice || invoice.status === InvoiceStatus.PAID) return;
+
+  console.error(`[invoice.service] Stripe payment received for ${invoice.status} invoice ${invoice.number} (${invoice.id})`);
+  try {
+    await sendMail({
+      to: invoice.user.email,
+      subject: `Action needed: payment received for ${invoice.status.toLowerCase()} invoice ${invoice.number}`,
+      html: followUpEmailHtml({
+        body:
+          `${invoice.client.name} paid invoice ${invoice.number} online, but the invoice was ${invoice.status.toLowerCase()} ` +
+          `by then, so it wasn't marked paid.\n\nRefund the payment from your Stripe dashboard, or contact the client.`,
+        viewUrl: `${env.FRONTEND_URL}/invoices/${invoice.id}`,
+      }),
+    });
+  } catch (err) {
+    console.error("[invoice.service] Closed-invoice payment alert failed:", err);
   }
 }

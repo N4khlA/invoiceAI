@@ -4,9 +4,10 @@ import { Prisma, InvoiceStatus } from "@prisma/client";
 import { Resend } from "resend";
 import prisma from "../../lib/prisma";
 import { currentStage, sendDueReminders } from "../../jobs/reminders.job";
+import { generateFollowUp } from "../../services/ai.service";
 
 jest.mock("../../services/ai.service", () => ({
-  generateFollowUp: jest.fn().mockResolvedValue({ subject: "Friendly reminder", body: "Please pay." }),
+  generateFollowUp: jest.fn(),
 }));
 
 const sendMock = (Resend as unknown as { __sendMock: jest.Mock }).__sendMock;
@@ -49,6 +50,7 @@ describe("sendDueReminders()", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     sendMock.mockResolvedValue({ id: "email-1" });
+    (generateFollowUp as jest.Mock).mockResolvedValue({ subject: "Friendly reminder", body: "Please pay." });
     (prisma.followUp.create as jest.Mock).mockResolvedValue({ id: "fu-1" });
   });
 
@@ -58,6 +60,22 @@ describe("sendDueReminders()", () => {
     const { where } = (prisma.invoice.findMany as jest.Mock).mock.calls[0][0];
     expect(where.user).toEqual({ plan: "PRO", autoReminders: true });
     expect(where.status.in).toEqual(["SENT", "VIEWED", "OVERDUE"]);
+    // Fully reminded invoices are left out so they can't crowd out new ones
+    expect(where.followUps).toEqual({ none: { reminderKey: "after-14" } });
+  });
+
+  it("pages through every batch, not just the first 200", async () => {
+    const page1 = Array.from({ length: 200 }, (_, i) =>
+      invoice({ id: `inv-${String(i).padStart(3, "0")}`, followUps: [{ reminderKey: "due", sentAt: new Date(now.getTime() - 2 * DAY) }] }),
+    );
+    (prisma.invoice.findMany as jest.Mock)
+      .mockResolvedValueOnce(page1)
+      .mockResolvedValueOnce([invoice({ id: "inv-new" })]);
+
+    expect(await sendDueReminders(now)).toBe(1);
+    const second = (prisma.invoice.findMany as jest.Mock).mock.calls[1][0];
+    expect(second.cursor).toEqual({ id: "inv-199" });
+    expect(second.skip).toBe(1);
   });
 
   it("claims the stage, then emails the client", async () => {
@@ -65,9 +83,13 @@ describe("sendDueReminders()", () => {
 
     expect(await sendDueReminders(now)).toBe(1);
     expect(prisma.followUp.create).toHaveBeenCalledWith({
-      data: { invoiceId: "inv-1", method: "AUTO", reminderKey: "due", notes: "Friendly reminder" },
+      data: expect.objectContaining({ invoiceId: "inv-1", method: "AUTO", reminderKey: "due" }),
     });
     expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({ to: "client@acme.test", subject: "Friendly reminder" }));
+    expect(prisma.followUp.update).toHaveBeenCalledWith({
+      where: { id: "fu-1" },
+      data: expect.objectContaining({ notes: "Friendly reminder" }),
+    });
   });
 
   it("never repeats a stage", async () => {
@@ -101,6 +123,8 @@ describe("sendDueReminders()", () => {
 
     expect(await sendDueReminders(now)).toBe(0);
     expect(sendMock).not.toHaveBeenCalled();
+    // Claim comes first, so the losing worker never pays for an AI draft
+    expect(generateFollowUp).not.toHaveBeenCalled();
   });
 
   it("releases the claim when the email fails, so tomorrow retries", async () => {
