@@ -1,5 +1,7 @@
 # InvoiceAI
 
+[![ci](https://github.com/N4khlA/invoiceAI/actions/workflows/ci.yml/badge.svg)](https://github.com/N4khlA/invoiceAI/actions/workflows/ci.yml)
+
 Invoicing for freelancers and small agencies: send professional invoices, let clients pay them by card, and let AI write — and send — the payment reminders.
 
 Every integration is optional. With no API keys the whole app runs in **demo mode**: emails are logged to the console, AI uses tone-aware templates, billing upgrades instantly and "Pay now" opens a simulated checkout. Add keys one at a time to switch each piece to the real thing.
@@ -126,6 +128,8 @@ The refresh cookie is cross-site between the Vercel and Render domains; for prod
 npm test                          # backend unit + integration (Jest, no DB needed)
 npm --prefix frontend run test:e2e  # Playwright: needs db:local, the API and the app running
 ```
+
+CI runs the backend tests and type-check, and the frontend type-check, lint and build, on every push.
 
 ## Project layout
 
